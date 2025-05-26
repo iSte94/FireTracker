@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { ArrowRight, Target } from "lucide-react";
 import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
+import { createClientComponentClient } from '@/lib/supabase-client';
 
 interface GoalProgress {
   id: string;
@@ -30,24 +31,56 @@ export function InvestmentGoalsWidget() {
     };
   } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const supabase = createClientComponentClient();
+
+  // Verifica autenticazione
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        setIsAuthenticated(!!user);
+      } catch (error) {
+        console.log('Widget investment-goals: Errore verifica autenticazione:', error);
+        setIsAuthenticated(false);
+      }
+    };
+
+    checkAuth();
+  }, [supabase]);
 
   useEffect(() => {
     const fetchGoalsProgress = async () => {
+      // Blocca completamente se non autenticato
+      if (isAuthenticated === false) {
+        console.log('Widget investment-goals: Utente non autenticato, blocco chiamata API');
+        setIsLoading(false);
+        return;
+      }
+
+      // Non procedere se lo stato di autenticazione non è ancora determinato
+      if (isAuthenticated === null) {
+        return; // Mantieni loading finché non si determina lo stato
+      }
+
       try {
         const response = await fetch('/api/goals/check-progress');
         if (response.ok) {
           const data = await response.json();
           setGoalsData(data);
+        } else if (response.status === 401) {
+          console.log('Widget investment-goals: API risposta 401, utente non autenticato');
+          setIsAuthenticated(false);
         }
       } catch (error) {
-        console.error('Errore caricamento obiettivi:', error);
+        console.error('Widget investment-goals: Errore caricamento obiettivi:', error);
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchGoalsProgress();
-  }, []);
+  }, [isAuthenticated]);
 
   // Trova deviazioni significative per l'alert
   const significantDeviations = goalsData?.goalsProgress

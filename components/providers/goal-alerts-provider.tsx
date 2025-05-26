@@ -10,15 +10,19 @@ import { usePathname } from 'next/navigation';
 
 export function GoalAlertsProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const [isAuthPage, setIsAuthPage] = useState(false);
   
-  // Controlla se siamo in una pagina di autenticazione
-  useEffect(() => {
-    const authPages = ['/login', '/register', '/auth/callback', '/auth/check-email'];
-    setIsAuthPage(authPages.some(page => pathname.startsWith(page)));
-  }, [pathname]);
+  // Controllo immediato senza useState per evitare race condition
+  // Includo anche l'homepage per evitare chiamate API non autenticate
+  const authPages = ['/login', '/register', '/auth/callback', '/auth/check-email'];
+  const isAuthPage = authPages.some(page => {
+    // La homepage '/' non è più considerata una pagina di autenticazione per GoalAlertsProvider
+    return pathname?.startsWith(page);
+  });
+  
+  console.log('[GoalAlertsProvider] pathname:', pathname);
+  console.log('[GoalAlertsProvider] isAuthPage:', isAuthPage);
 
-  // Disabilita l'hook nelle pagine di autenticazione
+  // Disabilita completamente l'hook nelle pagine di autenticazione
   const { alerts, dismissAlert, hasHighPriorityAlerts } = useGoalAlerts(
     isAuthPage ? 0 : 600000 // Disabilita se è una pagina di auth
   );
