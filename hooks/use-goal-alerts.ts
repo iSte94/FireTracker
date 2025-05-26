@@ -122,25 +122,28 @@ export function useGoalAlerts(checkInterval: number = 600000) { // 10 minuti def
         }
       });
 
-      // Confronta con alert precedenti per mostrare solo nuovi
-      const previousAlertIds = new Set(alerts.map(a => a.id));
-      const newUniqueAlerts = newAlerts.filter(alert => !previousAlertIds.has(alert.id));
+      // Confronta con alert precedenti per mostrare solo nuovi e aggiorna lo stato
+      setAlerts(prevAlerts => {
+        const previousAlertIds = new Set(prevAlerts.map(a => a.id));
+        const uniqueNewAlertsToShowInToast = newAlerts.filter(alert => !previousAlertIds.has(alert.id));
 
-      // Mostra toast per nuovi alert ad alta priorità
-      newUniqueAlerts
-        .filter(alert => alert.severity === 'high')
-        .forEach(alert => {
-          toast({
-            title: alert.type === 'deviation' ? "⚠️ Deviazione Portfolio" : 
-                   alert.type === 'achievement' ? "🎉 Obiettivo Raggiunto" : 
-                   "📊 Attenzione Richiesta",
-            description: alert.message,
-            variant: alert.type === 'achievement' ? 'default' : 'destructive',
+        // Mostra toast per nuovi alert ad alta priorità
+        uniqueNewAlertsToShowInToast
+          .filter(alert => alert.severity === 'high')
+          .forEach(alert => {
+            toast({
+              title: alert.type === 'deviation' ? "⚠️ Deviazione Portfolio" : 
+                     alert.type === 'achievement' ? "🎉 Obiettivo Raggiunto" : 
+                     "📊 Attenzione Richiesta",
+              description: alert.message,
+              variant: alert.type === 'achievement' ? 'default' : 'destructive',
+            });
           });
-        });
+        
+        return newAlerts; // Ritorna la nuova lista completa di alert
+      });
 
-      setAlerts(newAlerts);
-      return newAlerts;
+      return newAlerts; // Manteniamo il ritorno di newAlerts per ora
     } catch (error) {
       console.error('Errore controllo obiettivi:', error);
       toast({
@@ -152,7 +155,7 @@ export function useGoalAlerts(checkInterval: number = 600000) { // 10 minuti def
     } finally {
       setIsChecking(false);
     }
-  }, [alerts, toast, isAuthenticated, supabase]);
+  }, [toast, isAuthenticated, supabase]); // Rimosso 'alerts' dalle dipendenze
 
   // Controllo automatico periodico
   useEffect(() => {

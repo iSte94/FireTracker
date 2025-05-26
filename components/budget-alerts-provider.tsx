@@ -5,7 +5,7 @@ import { useIsFireBudget } from "@/components/providers/view-mode-provider"
 
 export default function BudgetAlertsProvider({ children }: { children: React.ReactNode }) {
   const isFireBudget = useIsFireBudget()
-  const forceDisableBudgetAlerts = true; // Temporary flag for diagnosis
+  const forceDisableBudgetAlerts = false; // Temporary flag for diagnosis
   
   // Attiva gli alert del budget solo se siamo in modalità FIRE & Budget
   if (!forceDisableBudgetAlerts && isFireBudget) {
