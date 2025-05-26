@@ -5,10 +5,8 @@ import { usePathname } from "next/navigation"
 
 export function useBudgetAlerts() {
   const pathname = usePathname()
-  console.log("useBudgetAlerts initialized", { pathname })
 
   useEffect(() => {
-    console.log("useBudgetAlerts useEffect", { pathname })
     // Check alerts only when on budget-related pages
     if (!pathname.includes('/budget') && !pathname.includes('/dashboard')) {
       return
@@ -16,7 +14,6 @@ export function useBudgetAlerts() {
 
     // Function to check for new alerts
     const checkAlerts = async () => {
-      console.log("useBudgetAlerts: Calling fetch for /api/budget/check-alerts", { pathname })
       try {
         const response = await fetch('/api/budget/check-alerts', {
           method: 'POST',

@@ -20,15 +20,9 @@ export function ViewModeProvider({ children }: { children: React.ReactNode }) {
   const supabase = createClientComponentClient()
   const router = useRouter()
 
-  // Log initial viewMode
-  useEffect(() => {
-    console.log("ViewModeProvider: initial viewMode", viewMode)
-  }, [])
-
   // Carica la modalità di visualizzazione dal profilo utente
   useEffect(() => {
     const loadViewMode = async () => {
-      console.log("ViewModeProvider: loadViewMode called")
       try {
         const { data: { user } } = await supabase.auth.getUser()
         
@@ -42,12 +36,10 @@ export function ViewModeProvider({ children }: { children: React.ReactNode }) {
           .select("view_mode")
           .eq("id", user.id)
           .single()
-        console.log("ViewModeProvider: profile?.view_mode", profile?.view_mode)
 
         if (error) {
           console.error("Errore nel caricamento della modalità di visualizzazione:", error)
         } else if (profile?.view_mode) {
-          console.log("ViewModeProvider: setting viewMode in loadViewMode", profile.view_mode)
           setViewModeState(profile.view_mode as ViewMode)
         }
       } catch (error) {
@@ -61,11 +53,9 @@ export function ViewModeProvider({ children }: { children: React.ReactNode }) {
 
     // Ascolta i cambiamenti di autenticazione
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("ViewModeProvider: onAuthStateChange event", event)
       if (event === 'SIGNED_IN' && session?.user) {
         await loadViewMode()
       } else if (event === 'SIGNED_OUT') {
-        console.log("ViewModeProvider: onAuthStateChange event", event, "setting viewMode to fire_budget")
         setViewModeState('fire_budget')
       }
     })
