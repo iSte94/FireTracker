@@ -150,27 +150,33 @@ export function AddTransactionDialog({ children, onTransactionAdded }: AddTransa
       })
       
       if (syncResponse.ok) {
-        // Controlla se ci sono deviazioni dagli obiettivi
-        const goalsResponse = await fetch('/api/goals/check-progress')
-        if (goalsResponse.ok) {
-          const goalsData = await goalsResponse.json()
-          const deviations = goalsData.needsAttention.filter((g: any) =>
-            g.status === 'needs_rebalancing' && g.deviations && g.deviations.length > 0
-          )
-          
-          if (deviations.length > 0) {
-            const highPriorityDeviations = deviations.flatMap((g: any) =>
-              g.deviations.filter((d: any) => d.deviation > 10)
+        // Controlla se ci sono deviazioni dagli obiettivi - SOLO se autenticati
+        try {
+          const goalsResponse = await fetch('/api/goals/check-progress')
+          if (goalsResponse.ok) {
+            const goalsData = await goalsResponse.json()
+            const deviations = goalsData.needsAttention.filter((g: any) =>
+              g.status === 'needs_rebalancing' && g.deviations && g.deviations.length > 0
             )
             
-            if (highPriorityDeviations.length > 0) {
-              toast({
-                title: '⚠️ Attenzione: Portfolio sbilanciato',
-                description: `${highPriorityDeviations.length} allocazioni deviano significativamente dagli obiettivi. Verifica la sezione Goals.`,
-                variant: 'destructive',
-              })
+            if (deviations.length > 0) {
+              const highPriorityDeviations = deviations.flatMap((g: any) =>
+                g.deviations.filter((d: any) => d.deviation > 10)
+              )
+              
+              if (highPriorityDeviations.length > 0) {
+                toast({
+                  title: '⚠️ Attenzione: Portfolio sbilanciato',
+                  description: `${highPriorityDeviations.length} allocazioni deviano significativamente dagli obiettivi. Verifica la sezione Goals.`,
+                  variant: 'destructive',
+                })
+              }
             }
+          } else if (goalsResponse.status === 401) {
+            console.log('AddTransactionDialog: Utente non autenticato, salto controllo obiettivi');
           }
+        } catch (error) {
+          console.log('AddTransactionDialog: Errore controllo obiettivi (non critico):', error);
         }
       }
       

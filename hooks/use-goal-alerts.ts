@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
+import { createClientComponentClient } from '@/lib/supabase-client';
 
 interface GoalAlert {
   id: string;
@@ -22,16 +23,53 @@ interface GoalProgress {
 export function useGoalAlerts(checkInterval: number = 600000) { // 10 minuti default
   const [alerts, setAlerts] = useState<GoalAlert[]>([]);
   const [isChecking, setIsChecking] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const { toast } = useToast();
+  const supabase = createClientComponentClient();
+
+  // Verifica autenticazione all'inizializzazione
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        setIsAuthenticated(!!user);
+      } catch (error) {
+        console.log('Errore verifica autenticazione:', error);
+        setIsAuthenticated(false);
+      }
+    };
+
+    checkAuth();
+
+    // Ascolta cambiamenti di autenticazione
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setIsAuthenticated(!!session?.user);
+    });
+
+    return () => subscription.unsubscribe();
+  }, [supabase]);
 
   const checkGoalProgress = useCallback(async () => {
+    // Blocca completamente se non autenticato
+    if (isAuthenticated === false) {
+      console.log('Hook goal-alerts: Utente non autenticato, blocco chiamata API');
+      return [];
+    }
+
+    // Non procedere se lo stato di autenticazione non è ancora determinato
+    if (isAuthenticated === null) {
+      console.log('Hook goal-alerts: Stato autenticazione non determinato, blocco chiamata API');
+      return [];
+    }
+
     setIsChecking(true);
     try {
       const response = await fetch('/api/goals/check-progress');
       if (!response.ok) {
         // Se è un errore 401, l'utente non è autenticato - non mostrare errori
         if (response.status === 401) {
-          console.log('Utente non autenticato, saltando controllo obiettivi');
+          console.log('API risposta 401, aggiorno stato autenticazione');
+          setIsAuthenticated(false);
           return [];
         }
         throw new Error('Errore nel controllo obiettivi');
@@ -84,25 +122,28 @@ export function useGoalAlerts(checkInterval: number = 600000) { // 10 minuti def
         }
       });
 
-      // Confronta con alert precedenti per mostrare solo nuovi
-      const previousAlertIds = new Set(alerts.map(a => a.id));
-      const newUniqueAlerts = newAlerts.filter(alert => !previousAlertIds.has(alert.id));
+      // Confronta con alert precedenti per mostrare solo nuovi e aggiorna lo stato
+      setAlerts(prevAlerts => {
+        const previousAlertIds = new Set(prevAlerts.map(a => a.id));
+        const uniqueNewAlertsToShowInToast = newAlerts.filter(alert => !previousAlertIds.has(alert.id));
 
-      // Mostra toast per nuovi alert ad alta priorità
-      newUniqueAlerts
-        .filter(alert => alert.severity === 'high')
-        .forEach(alert => {
-          toast({
-            title: alert.type === 'deviation' ? "⚠️ Deviazione Portfolio" : 
-                   alert.type === 'achievement' ? "🎉 Obiettivo Raggiunto" : 
-                   "📊 Attenzione Richiesta",
-            description: alert.message,
-            variant: alert.type === 'achievement' ? 'default' : 'destructive',
+        // Mostra toast per nuovi alert ad alta priorità
+        uniqueNewAlertsToShowInToast
+          .filter(alert => alert.severity === 'high')
+          .forEach(alert => {
+            toast({
+              title: alert.type === 'deviation' ? "⚠️ Deviazione Portfolio" : 
+                     alert.type === 'achievement' ? "🎉 Obiettivo Raggiunto" : 
+                     "📊 Attenzione Richiesta",
+              description: alert.message,
+              variant: alert.type === 'achievement' ? 'default' : 'destructive',
+            });
           });
-        });
+        
+        return newAlerts; // Ritorna la nuova lista completa di alert
+      });
 
-      setAlerts(newAlerts);
-      return newAlerts;
+      return newAlerts; // Manteniamo il ritorno di newAlerts per ora
     } catch (error) {
       console.error('Errore controllo obiettivi:', error);
       toast({
@@ -114,30 +155,43 @@ export function useGoalAlerts(checkInterval: number = 600000) { // 10 minuti def
     } finally {
       setIsChecking(false);
     }
-  }, [alerts, toast]);
+  }, [toast, isAuthenticated, supabase]); // Rimosso 'alerts' dalle dipendenze
 
   // Controllo automatico periodico
   useEffect(() => {
-    // Se checkInterval è 0, disabilita completamente l'hook
-    if (checkInterval === 0) {
-      console.log('Goal alerts hook disabilitato (checkInterval = 0)');
+    // Blocca tutto se non autenticato
+    if (isAuthenticated === false) {
+      setAlerts([]); // Pulisce gli alert esistenti
       return;
     }
 
-    // Controllo iniziale solo se non stiamo già controllando
-    if (!isChecking) {
+    // Non procedere se lo stato di autenticazione non è ancora determinato
+    if (isAuthenticated === null) {
+      return;
+    }
+
+    // Se checkInterval è 0, disabilita completamente l'hook
+    if (checkInterval === 0) {
+      setAlerts([]); // Pulisce gli alert esistenti
+      return;
+    }
+
+    // Controllo iniziale solo se non stiamo già controllando e siamo autenticati
+    if (!isChecking && isAuthenticated === true) {
       checkGoalProgress();
     }
 
-    // Imposta intervallo di controllo
+    // Imposta intervallo di controllo solo se autenticati
     const interval = setInterval(() => {
-      if (!isChecking) {
+      if (!isChecking && isAuthenticated === true) {
         checkGoalProgress();
       }
     }, checkInterval);
 
-    return () => clearInterval(interval);
-  }, [checkInterval]); // Rimuovo checkGoalProgress per evitare loop, ma aggiungo controllo isChecking
+    return () => {
+      clearInterval(interval);
+    };
+  }, [checkInterval, checkGoalProgress, isAuthenticated]); // Aggiungo isAuthenticated alle dipendenze
 
   // Funzione per rimuovere un alert
   const dismissAlert = useCallback((alertId: string) => {

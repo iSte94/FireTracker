@@ -84,6 +84,9 @@ CREATE POLICY "Users can view own profile" ON profiles
 CREATE POLICY "Users can update own profile" ON profiles
   FOR UPDATE USING (auth.uid() = id);
 
+CREATE POLICY "Users can insert own profile" ON profiles
+  FOR INSERT WITH CHECK (auth.uid() = id);
+
 -- Net Worth: Users can only CRUD their own net worth entries
 CREATE POLICY "Users can view own net worth" ON net_worth
   FOR SELECT USING (auth.uid() = user_id);

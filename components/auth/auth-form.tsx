@@ -2,8 +2,8 @@
 
 import type React from "react"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useEffect } from "react"
+import { useRouter, usePathname } from "next/navigation"
 import { createClientComponentClient } from "@/lib/supabase-client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -21,6 +21,22 @@ export default function AuthForm() {
   const [loading, setLoading] = useState(false)
   const router = useRouter()
   const supabase = createClientComponentClient()
+  const pathname = usePathname()
+
+  useEffect(() => {
+    const checkUserAndRedirect = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        // Se l'utente è già loggato e si trova sulla pagina di login o registrazione,
+        // reindirizzalo al dashboard.
+        if (pathname === '/login' || pathname === '/register') {
+          router.push('/dashboard');
+        }
+      }
+    };
+
+    checkUserAndRedirect();
+  }, [router, supabase, pathname]);
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault()

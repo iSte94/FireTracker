@@ -33,7 +33,7 @@ export async function middleware(req: NextRequest) {
   const isAuthenticated = !!user
 
   // Protected routes that require authentication
-  const protectedRoutes = ["/dashboard", "/profile", "/budget", "/goals", "/financial-transactions"]
+  const protectedRoutes = ["/dashboard", "/profile", "/budget", "/goals", "/financial-transactions", "/fire-progress", "/calculators"]
 
   // Routes that are only available in FIRE & Budget mode
   const budgetOnlyRoutes = ["/budget"]
