@@ -47,17 +47,16 @@ export default function Header() {
       const hasAuthCookie = document.cookie.includes('sb-') && document.cookie.includes('auth-token')
       
       if (hasAuthCookie) {
-        console.log('Header: Cookie presenti ma nessun utente, tentativo di refresh...')
+        // console.log('Header: Cookie presenti ma nessun utente, tentativo di refresh...') // Removed
         refreshSession().then((success) => {
           if (!success) {
-            console.log('Header: Refresh fallito, potrebbe essere necessario un reload')
-            // Opzionalmente, forza un reload dopo un timeout
-            setTimeout(() => {
-              if (!user && document.cookie.includes('sb-') && document.cookie.includes('auth-token')) {
-                console.log('Header: Forzando reload della pagina...')
-                window.location.reload()
-              }
-            }, 3000)
+            // console.log('Header: Refresh fallito, sessione non ripristinata.') // Removed
+            // setTimeout(() => {
+            //   if (!user && document.cookie.includes('sb-') && document.cookie.includes('auth-token')) {
+            //     console.log('Header: Forzando reload della pagina...')
+            //     window.location.reload()
+            //   }
+            // }, 3000) // Reload logic removed/commented
           }
         })
       }
