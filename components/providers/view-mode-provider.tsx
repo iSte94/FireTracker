@@ -38,12 +38,20 @@ export function ViewModeProvider({ children }: { children: React.ReactNode }) {
           .single()
 
         if (error) {
-          console.error("Errore nel caricamento della modalità di visualizzazione:", error)
+          if (error && Object.keys(error).length > 0) {
+            console.error("Errore nel caricamento della modalità di visualizzazione:", JSON.stringify(error, null, 2));
+          } else {
+            console.error("Errore nel caricamento della modalità di visualizzazione: Errore sconosciuto o vuoto.");
+          }
         } else if (profile?.view_mode) {
           setViewModeState(profile.view_mode as ViewMode)
         }
       } catch (error) {
-        console.error("Errore nel caricamento della modalità di visualizzazione:", error)
+        if (error && Object.keys(error).length > 0) {
+          console.error("Errore nel caricamento della modalità di visualizzazione:", JSON.stringify(error, null, 2));
+        } else {
+          console.error("Errore nel caricamento della modalità di visualizzazione: Errore sconosciuto o vuoto.");
+        }
       } finally {
         setIsLoading(false)
       }
