@@ -1,7 +1,9 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect } from "react" // useState non è più necessario qui per 'user'
 import Link from "next/link"
+import { useSession } from "next-auth/react" // Importa useSession
+import { useRouter } from "next/navigation" // Importa useRouter per il redirect
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { 
@@ -26,20 +28,42 @@ import FireNumberCard from "@/components/fire-number-card"
 import ExpensesChart from "@/components/expenses-chart"
 import NetWorthChart from "@/components/net-worth-chart"
 import { useIsFireOnly } from "@/components/providers/view-mode-provider"
-import { createClientComponentClient } from "@/lib/supabase-client"
+// Rimuovi: import { createClientComponentClient } from "@/lib/supabase-client"
 
 export default function Home() {
-  const isFireOnly = useIsFireOnly()
-  const [user, setUser] = useState<any>(null)
-  const supabase = createClientComponentClient()
+  const { data: session, status } = useSession() // Usa useSession per ottenere l'utente
+  const user = session?.user
+  const isLoadingSession = status === "loading"
+  const router = useRouter() // Hook per il routing
 
+  const isFireOnly = useIsFireOnly()
+
+  // Redirect automatico alla Dashboard per utenti autenticati
   useEffect(() => {
-    const fetchUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      setUser(user)
+    if (status === "authenticated" && user) {
+      router.push("/dashboard")
     }
-    fetchUser()
-  }, [supabase.auth])
+  }, [status, user, router])
+  // Rimuovi: const [user, setUser] = useState<any>(null)
+  // Rimuovi: const supabase = createClientComponentClient()
+
+  // Rimuovi: useEffect per fetchUser con Supabase
+  // useEffect(() => {
+  //   const fetchUser = async () => {
+  //     const { data: { user } } = await supabase.auth.getUser()
+  //     setUser(user)
+  //   }
+  //   fetchUser()
+  // }, [supabase.auth])
+
+  if (isLoadingSession) {
+    // Puoi mostrare uno scheletro o un loader qui se preferisci
+    return (
+      <main className="flex min-h-screen flex-col items-center justify-center">
+        <p>Caricamento...</p>
+      </main>
+    )
+  }
 
   // Contenuto specifico per modalità Solo FIRE
   if (isFireOnly) {
@@ -338,15 +362,26 @@ export default function Home() {
               </p>
             </div>
             <div className="space-x-4">
-              <Link href="/dashboard">
-                <Button className="bg-emerald-600 hover:bg-emerald-700">
-                  Inizia ora
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-              </Link>
-              <Link href="/calculators">
-                <Button variant="outline">Esplora i calcolatori</Button>
-              </Link>
+              {user ? (
+                <Link href="/dashboard">
+                  <Button className="bg-emerald-600 hover:bg-emerald-700">
+                    Vai alla Dashboard
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </Link>
+              ) : (
+                <>
+                  <Link href="/register">
+                    <Button className="bg-emerald-600 hover:bg-emerald-700">
+                      Inizia ora
+                      <ArrowRight className="ml-2 h-4 w-4" />
+                    </Button>
+                  </Link>
+                  <Link href="/calculators">
+                    <Button variant="outline">Esplora i calcolatori</Button>
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -429,21 +464,80 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Anteprima Dashboard - Visualizzabile sempre ma con contenuti diversi */}
       <section className="w-full py-12 md:py-24 lg:py-32 bg-gray-50 dark:bg-gray-900">
         <div className="container px-4 md:px-6">
           <div className="flex flex-col items-center justify-center space-y-4 text-center">
             <div className="space-y-2">
-              <h2 className="text-3xl font-bold tracking-tighter sm:text-5xl">Anteprima Dashboard</h2>
+              <h2 className="text-3xl font-bold tracking-tighter sm:text-5xl">
+                {user ? "La Tua Dashboard" : "Anteprima Dashboard"}
+              </h2>
               <p className="mx-auto max-w-[700px] text-gray-500 md:text-xl/relaxed lg:text-base/relaxed xl:text-xl/relaxed dark:text-gray-400">
-                Ecco come potrebbe apparire la tua dashboard personalizzata.
+                {user
+                  ? "Panoramica del tuo percorso verso l'indipendenza finanziaria."
+                  : "Scopri come sarà la tua dashboard personalizzata una volta registrato."
+                }
               </p>
             </div>
           </div>
+
+          {/* Statistiche in evidenza */}
+          {!user && (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mt-12 mb-8 max-w-6xl mx-auto">
+              <Card className="border-emerald-200 dark:border-emerald-800">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">FIRE Number</CardTitle>
+                  <Target className="h-4 w-4 text-emerald-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">€1.250.000</div>
+                  <p className="text-xs text-muted-foreground">25x le spese annuali</p>
+                </CardContent>
+              </Card>
+              
+              <Card className="border-emerald-200 dark:border-emerald-800">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Progresso FIRE</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-emerald-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">67%</div>
+                  <p className="text-xs text-muted-foreground">€837.500 risparmiati</p>
+                </CardContent>
+              </Card>
+
+              <Card className="border-emerald-200 dark:border-emerald-800">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Anni al FIRE</CardTitle>
+                  <Clock className="h-4 w-4 text-emerald-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">4.2</div>
+                  <p className="text-xs text-muted-foreground">Al ritmo attuale</p>
+                </CardContent>
+              </Card>
+
+              <Card className="border-emerald-200 dark:border-emerald-800">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Tasso di Risparmio</CardTitle>
+                  <PiggyBank className="h-4 w-4 text-emerald-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">52%</div>
+                  <p className="text-xs text-muted-foreground">€3.200/mese</p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
           <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 lg:grid-cols-3 mt-8">
             <div className="lg:col-span-2">
               <Card className="h-full">
                 <CardHeader>
                   <CardTitle>Patrimonio Netto nel Tempo</CardTitle>
+                  <CardDescription>
+                    {user ? "L'andamento del tuo patrimonio negli ultimi 12 mesi" : "Esempio di crescita del patrimonio nel tempo"}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="h-80">
                   <NetWorthChart />
@@ -453,7 +547,10 @@ export default function Home() {
             <div>
               <Card className="h-full">
                 <CardHeader>
-                  <CardTitle>Il Tuo FIRE Number</CardTitle>
+                  <CardTitle>{user ? "Il Tuo FIRE Number" : "FIRE Number Esempio"}</CardTitle>
+                  <CardDescription>
+                    {user ? "Basato sulle tue spese reali" : "Calcolato su spese di €50.000/anno"}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <FireNumberCard />
@@ -464,6 +561,9 @@ export default function Home() {
               <Card className="h-full">
                 <CardHeader>
                   <CardTitle>Progresso FIRE</CardTitle>
+                  <CardDescription>
+                    {user ? "Il tuo avanzamento reale" : "Esempio di progresso tipico"}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <ProgressOverview />
@@ -474,6 +574,9 @@ export default function Home() {
               <Card className="h-full">
                 <CardHeader>
                   <CardTitle>Spese per Categoria</CardTitle>
+                  <CardDescription>
+                    {user ? "Le tue spese mensili per categoria" : "Esempio di distribuzione delle spese"}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="h-80">
                   <ExpensesChart />
@@ -481,6 +584,34 @@ export default function Home() {
               </Card>
             </div>
           </div>
+
+          {/* Call to Action per utenti non registrati */}
+          {!user && (
+            <div className="mt-16 text-center">
+              <div className="bg-gradient-to-r from-emerald-50 to-emerald-100 dark:from-emerald-950/20 dark:to-emerald-900/20 rounded-2xl p-8 max-w-2xl mx-auto border border-emerald-200 dark:border-emerald-800">
+                <h3 className="text-2xl font-bold mb-4 text-emerald-800 dark:text-emerald-300">
+                  Pronto a iniziare il tuo percorso FIRE?
+                </h3>
+                <p className="text-emerald-700 dark:text-emerald-400 mb-6">
+                  Registrati gratuitamente e inizia a tracciare i tuoi progressi verso l'indipendenza finanziaria con dati reali e personalizzati.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                  <Link href="/register">
+                    <Button size="lg" className="bg-emerald-600 hover:bg-emerald-700 text-white px-8">
+                      Registrati Gratis
+                      <ArrowRight className="ml-2 h-5 w-5" />
+                    </Button>
+                  </Link>
+                  <Link href="/calculators">
+                    <Button size="lg" variant="outline" className="border-emerald-600 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950">
+                      Prova i Calcolatori
+                      <Calculator className="ml-2 h-5 w-5" />
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </section>
     </main>

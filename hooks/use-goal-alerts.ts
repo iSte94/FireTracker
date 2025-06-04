@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
-import { createClientComponentClient } from '@/lib/supabase-client';
+import { useSession } from 'next-auth/react';
 
 interface GoalAlert {
   id: string;
@@ -23,42 +23,19 @@ interface GoalProgress {
 export function useGoalAlerts(checkInterval: number = 600000) { // 10 minuti default
   const [alerts, setAlerts] = useState<GoalAlert[]>([]);
   const [isChecking, setIsChecking] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const { toast } = useToast();
-  const supabase = createClientComponentClient();
-
-  // Verifica autenticazione all'inizializzazione
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        setIsAuthenticated(!!user);
-      } catch (error) {
-        console.log('Errore verifica autenticazione:', error);
-        setIsAuthenticated(false);
-      }
-    };
-
-    checkAuth();
-
-    // Ascolta cambiamenti di autenticazione
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      setIsAuthenticated(!!session?.user);
-    });
-
-    return () => subscription.unsubscribe();
-  }, [supabase]);
+  const { data: session, status } = useSession();
+  
+  const isAuthenticated = status === "authenticated";
+  const isLoading = status === "loading";
 
   const checkGoalProgress = useCallback(async () => {
-    // Blocca completamente se non autenticato
-    if (isAuthenticated === false) {
+    if (!isAuthenticated) {
       console.log('Hook goal-alerts: Utente non autenticato, blocco chiamata API');
       return [];
     }
-
-    // Non procedere se lo stato di autenticazione non è ancora determinato
-    if (isAuthenticated === null) {
-      console.log('Hook goal-alerts: Stato autenticazione non determinato, blocco chiamata API');
+    if (isLoading) {
+      console.log('Hook goal-alerts: Stato autenticazione in caricamento, blocco chiamata API');
       return [];
     }
 
@@ -66,61 +43,81 @@ export function useGoalAlerts(checkInterval: number = 600000) { // 10 minuti def
     try {
       const response = await fetch('/api/goals/check-progress');
       if (!response.ok) {
-        // Se è un errore 401, l'utente non è autenticato - non mostrare errori
         if (response.status === 401) {
-          console.log('API risposta 401, aggiorno stato autenticazione');
-          setIsAuthenticated(false);
+          console.log('API risposta 401, utente non autenticato');
           return [];
         }
         throw new Error('Errore nel controllo obiettivi');
       }
 
       const data = await response.json();
+      console.log('[useGoalAlerts] Dati ricevuti da API:', JSON.stringify(data, null, 2)); // Log dei dati grezzi
       const newAlerts: GoalAlert[] = [];
 
-      // Analizza ogni obiettivo per generare alert
-      data.goalsProgress.forEach((goal: GoalProgress) => {
-        // Alert per deviazioni allocazione
-        if (goal.status === 'needs_rebalancing' && goal.deviations) {
-          goal.deviations.forEach((deviation: any) => {
-            if (deviation.deviation > 5) {
+      if (data && data.goalsProgress && Array.isArray(data.goalsProgress)) { // Controllo robustezza
+        data.goalsProgress.forEach((goal: GoalProgress) => {
+          console.log('[useGoalAlerts] Processando goal:', JSON.stringify(goal, null, 2)); // Log per ogni goal
+
+          // Alert per deviazioni allocazione
+          if (goal.status === 'needs_rebalancing' && goal.deviations && Array.isArray(goal.deviations)) { // Controllo robustezza
+            goal.deviations.forEach((deviation: any) => {
+              console.log('[useGoalAlerts] Processando deviation:', JSON.stringify(deviation, null, 2)); // Log per ogni deviation
+              // Aggiunto controllo per assicurarsi che deviation e le sue proprietà esistano
+              if (deviation && typeof deviation.deviation === 'number' && typeof deviation.asset_class === 'string') {
+                if (deviation.deviation > 5) {
+                  newAlerts.push({
+                    id: `${goal.id}-${deviation.asset_class}`,
+                    title: goal.title,
+                    type: 'deviation',
+                    message: `${deviation.asset_class}: deviazione del ${deviation.deviation.toFixed(1)}% dall'obiettivo`,
+                    action: deviation.action === 'increase' 
+                      ? `Aumentare allocazione in ${deviation.asset_class}`
+                      : `Ridurre allocazione in ${deviation.asset_class}`,
+                    severity: deviation.deviation > 10 ? 'high' : 'medium'
+                  });
+                }
+              } else {
+                console.warn('[useGoalAlerts] Oggetto deviation malformato o con proprietà mancanti:', deviation);
+              }
+            });
+          } else if (goal.status === 'needs_rebalancing') {
+            console.warn('[useGoalAlerts] Goal con status "needs_rebalancing" ma "deviations" è mancante o non è un array:', goal);
+          }
+
+          // Alert per obiettivi completati
+          if (goal.status === 'completed' || goal.status === 'achieved') {
+            if (typeof goal.progress === 'number') { // Controllo robustezza
               newAlerts.push({
-                id: `${goal.id}-${deviation.asset_class}`,
+                id: `${goal.id}-completed`,
                 title: goal.title,
-                type: 'deviation',
-                message: `${deviation.asset_class}: deviazione del ${deviation.deviation.toFixed(1)}% dall'obiettivo`,
-                action: deviation.action === 'increase' 
-                  ? `Aumentare allocazione in ${deviation.asset_class}`
-                  : `Ridurre allocazione in ${deviation.asset_class}`,
-                severity: deviation.deviation > 10 ? 'high' : 'medium'
+                type: 'achievement',
+                message: `Obiettivo raggiunto! Progresso: ${goal.progress.toFixed(0)}%`,
+                severity: 'low'
               });
+            } else {
+               console.warn('[useGoalAlerts] Goal "completed/achieved" con "progress" mancante o non numerico:', goal);
             }
-          });
-        }
-
-        // Alert per obiettivi completati
-        if (goal.status === 'completed' || goal.status === 'achieved') {
-          newAlerts.push({
-            id: `${goal.id}-completed`,
-            title: goal.title,
-            type: 'achievement',
-            message: `Obiettivo raggiunto! Progresso: ${goal.progress.toFixed(0)}%`,
-            severity: 'low'
-          });
-        }
-
-        // Alert per obiettivi in ritardo
-        if (goal.status === 'behind' || goal.status === 'underperforming') {
-          newAlerts.push({
-            id: `${goal.id}-behind`,
-            title: goal.title,
-            type: 'warning',
-            message: `Obiettivo in ritardo. Progresso attuale: ${goal.progress.toFixed(0)}%`,
-            action: 'Rivedere la strategia di investimento',
-            severity: goal.progress < 50 ? 'high' : 'medium'
-          });
-        }
-      });
+          }
+  
+          // Alert per obiettivi in ritardo
+          if (goal.status === 'behind' || goal.status === 'underperforming') {
+            if (typeof goal.progress === 'number') { // Controllo robustezza
+              newAlerts.push({
+                id: `${goal.id}-behind`,
+                title: goal.title,
+                type: 'warning',
+                message: `Obiettivo in ritardo. Progresso attuale: ${goal.progress.toFixed(0)}%`,
+                action: 'Rivedere la strategia di investimento',
+                severity: goal.progress < 50 ? 'high' : 'medium'
+              });
+            } else {
+              console.warn('[useGoalAlerts] Goal "behind/underperforming" con "progress" mancante o non numerico:', goal);
+            }
+          }
+        });
+      } else {
+        console.warn('[useGoalAlerts] "data.goalsProgress" non trovato o non è un array:', data);
+      }
 
       // Confronta con alert precedenti per mostrare solo nuovi e aggiorna lo stato
       setAlerts(prevAlerts => {
@@ -140,12 +137,16 @@ export function useGoalAlerts(checkInterval: number = 600000) { // 10 minuti def
             });
           });
         
-        return newAlerts; // Ritorna la nuova lista completa di alert
+        return newAlerts; 
       });
 
-      return newAlerts; // Manteniamo il ritorno di newAlerts per ora
+      return newAlerts;
     } catch (error) {
       console.error('Errore controllo obiettivi:', error);
+      // Aggiungo il log dello stack trace dell'errore per maggiori dettagli
+      if (error instanceof Error) {
+        console.error('Stack trace:', error.stack);
+      }
       toast({
         title: "Errore",
         description: "Impossibile controllare il progresso degli obiettivi",
@@ -155,18 +156,18 @@ export function useGoalAlerts(checkInterval: number = 600000) { // 10 minuti def
     } finally {
       setIsChecking(false);
     }
-  }, [toast, isAuthenticated, supabase]); // Rimosso 'alerts' dalle dipendenze
+  }, [toast, isAuthenticated, isLoading]);
 
   // Controllo automatico periodico
   useEffect(() => {
     // Blocca tutto se non autenticato
-    if (isAuthenticated === false) {
+    if (!isAuthenticated) {
       setAlerts([]); // Pulisce gli alert esistenti
       return;
     }
 
-    // Non procedere se lo stato di autenticazione non è ancora determinato
-    if (isAuthenticated === null) {
+    // Non procedere se ancora in caricamento
+    if (isLoading) {
       return;
     }
 
@@ -177,13 +178,13 @@ export function useGoalAlerts(checkInterval: number = 600000) { // 10 minuti def
     }
 
     // Controllo iniziale solo se non stiamo già controllando e siamo autenticati
-    if (!isChecking && isAuthenticated === true) {
+    if (!isChecking && isAuthenticated) {
       checkGoalProgress();
     }
 
     // Imposta intervallo di controllo solo se autenticati
     const interval = setInterval(() => {
-      if (!isChecking && isAuthenticated === true) {
+      if (!isChecking && isAuthenticated) {
         checkGoalProgress();
       }
     }, checkInterval);
@@ -191,7 +192,7 @@ export function useGoalAlerts(checkInterval: number = 600000) { // 10 minuti def
     return () => {
       clearInterval(interval);
     };
-  }, [checkInterval, checkGoalProgress, isAuthenticated]); // Aggiungo isAuthenticated alle dipendenze
+  }, [checkInterval, checkGoalProgress, isAuthenticated, isLoading]); // Aggiungo isAuthenticated e isLoading alle dipendenze
 
   // Funzione per rimuovere un alert
   const dismissAlert = useCallback((alertId: string) => {

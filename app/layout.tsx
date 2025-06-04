@@ -1,11 +1,16 @@
 import type React from "react"
 import "@/app/globals.css"
+// Importa PRIMA di tutto per prevenire conflitti ethereum (versione ultra-precoce)
+import "@/lib/ethereum-conflict-prevention-early"
+// Backup per prevenzione avanzata
+import "@/lib/ethereum-conflict-prevention-advanced"
 import { Inter } from "next/font/google"
-import { ThemeProvider } from "@/components/theme-provider"
 import Header from "@/components/header"
 import Footer from "@/components/footer"
-import { ConditionalProviders } from "@/components/providers/conditional-providers"
 import { Toaster } from "@/components/ui/toaster"
+import { ClientProviders } from "@/components/providers/client-providers"
+import EthereumConflictMonitor from "@/components/ethereum-conflict-monitor"
+import { PerformanceMonitor } from "@/components/debug/performance-monitor"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -24,14 +29,14 @@ export default function RootLayout({
   return (
     <html lang="it" suppressHydrationWarning>
       <body className={inter.className} suppressHydrationWarning>
-        <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
-          <ConditionalProviders>
-            <Header />
-            {children}
-            <Footer />
-            <Toaster />
-          </ConditionalProviders>
-        </ThemeProvider>
+        <ClientProviders>
+          <Header />
+          {children}
+          <Footer />
+          <Toaster />
+          <EthereumConflictMonitor />
+          {process.env.NODE_ENV === 'development' && <PerformanceMonitor />}
+        </ClientProviders>
       </body>
     </html>
   )

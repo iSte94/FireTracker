@@ -1,10 +1,10 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useSession } from "next-auth/react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { getBudgetOverview, getCategorySpending } from "@/lib/budget-client"
-import { createClientComponentClient } from "@/lib/supabase-client"
 import { TrendingUp, TrendingDown, AlertTriangle } from "lucide-react"
 import {
   BarChart,
@@ -44,19 +44,19 @@ export default function BudgetOverview() {
   const [budgetData, setBudgetData] = useState<BudgetData[]>([])
   const [categorySpending, setCategorySpending] = useState<CategorySpending[]>([])
   const [loading, setLoading] = useState(true)
-  const supabase = createClientComponentClient()
-
-  useEffect(() => {
-    loadBudgetData()
-  }, [])
+  const { data: session } = useSession()
 
   const loadBudgetData = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      setLoading(true)
+      
+      if (!session?.user?.id) {
+        console.log("No user session found")
+        return
+      }
 
-      const overview = await getBudgetOverview(user.id)
-      const spending = await getCategorySpending(user.id)
+      const overview = await getBudgetOverview(session.user.id)
+      const spending = await getCategorySpending(session.user.id)
       
       setBudgetData(overview)
       setCategorySpending(spending)
@@ -67,8 +67,112 @@ export default function BudgetOverview() {
     }
   }
 
+  useEffect(() => {
+    if (session?.user?.id) {
+      loadBudgetData()
+    }
+  }, [session?.user?.id])
+
+  // Aggiungi event listener per refresh automatico
+  useEffect(() => {
+    const handleRefresh = () => {
+      console.log("🔄 Budget Overview: Refreshing data...")
+      loadBudgetData()
+    }
+
+    // Ascolta eventi di refresh
+    window.addEventListener('budget-refresh', handleRefresh)
+    window.addEventListener('transactions-refresh', handleRefresh)
+    
+    return () => {
+      window.removeEventListener('budget-refresh', handleRefresh)
+      window.removeEventListener('transactions-refresh', handleRefresh)
+    }
+  }, [session?.user?.id])
+
   if (loading) {
-    return <div>Caricamento...</div>
+    return (
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardContent className="p-6">
+            <div className="animate-pulse">
+              <div className="h-4 bg-gray-200 rounded w-3/4 mb-4"></div>
+              <div className="h-32 bg-gray-200 rounded"></div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <div className="animate-pulse">
+              <div className="h-4 bg-gray-200 rounded w-3/4 mb-4"></div>
+              <div className="h-32 bg-gray-200 rounded"></div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (!session?.user) {
+    return (
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardContent className="p-6">
+            <div className="text-center py-8 text-muted-foreground">
+              <AlertTriangle className="h-12 w-12 mx-auto mb-4" />
+              <p className="text-lg font-medium">Accesso richiesto</p>
+              <p className="text-sm">Effettua il login per visualizzare i tuoi budget</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-6">
+            <div className="text-center py-8 text-muted-foreground">
+              <AlertTriangle className="h-12 w-12 mx-auto mb-4" />
+              <p className="text-lg font-medium">Accesso richiesto</p>
+              <p className="text-sm">Effettua il login per visualizzare le spese</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (budgetData.length === 0) {
+    return (
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Budget per Categoria</CardTitle>
+            <CardDescription>
+              Progresso delle spese rispetto al budget pianificato
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-center py-8 text-muted-foreground">
+              <AlertTriangle className="h-12 w-12 mx-auto mb-4" />
+              <p className="text-lg font-medium">Nessun budget configurato</p>
+              <p className="text-sm">Crea il tuo primo budget per iniziare a tracciare le spese</p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Distribuzione Spese</CardTitle>
+            <CardDescription>
+              Come sono distribuite le tue spese per categoria
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-center py-8 text-muted-foreground">
+              <AlertTriangle className="h-12 w-12 mx-auto mb-4" />
+              <p className="text-lg font-medium">Nessuna spesa registrata</p>
+              <p className="text-sm">Aggiungi transazioni per vedere la distribuzione</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   const totalBudget = budgetData.reduce((sum, item) => sum + item.budget, 0)
@@ -138,25 +242,33 @@ export default function BudgetOverview() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={categorySpending}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                outerRadius={80}
-                fill="#8884d8"
-                dataKey="value"
-              >
-                {categorySpending.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(value: number) => `€${value.toFixed(2)}`} />
-            </PieChart>
-          </ResponsiveContainer>
+          {categorySpending.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <AlertTriangle className="h-12 w-12 mx-auto mb-4" />
+              <p className="text-lg font-medium">Nessuna spesa questo mese</p>
+              <p className="text-sm">Aggiungi transazioni per vedere la distribuzione</p>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={categorySpending}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  outerRadius={80}
+                  fill="#8884d8"
+                  dataKey="value"
+                >
+                  {categorySpending.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value: number) => `€${value.toFixed(2)}`} />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
         </CardContent>
       </Card>
 
@@ -169,17 +281,25 @@ export default function BudgetOverview() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={budgetData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="category" />
-              <YAxis />
-              <Tooltip formatter={(value: number) => `€${value.toFixed(2)}`} />
-              <Legend />
-              <Bar dataKey="budget" fill="#3b82f6" name="Budget" />
-              <Bar dataKey="spent" fill="#10b981" name="Speso" />
-            </BarChart>
-          </ResponsiveContainer>
+          {budgetData.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <AlertTriangle className="h-12 w-12 mx-auto mb-4" />
+              <p className="text-lg font-medium">Nessun dato da confrontare</p>
+              <p className="text-sm">Configura budget e aggiungi transazioni</p>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={budgetData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="category" />
+                <YAxis />
+                <Tooltip formatter={(value: number) => `€${value.toFixed(2)}`} />
+                <Legend />
+                <Bar dataKey="budget" fill="#3b82f6" name="Budget" />
+                <Bar dataKey="spent" fill="#10b981" name="Speso" />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </CardContent>
       </Card>
     </div>

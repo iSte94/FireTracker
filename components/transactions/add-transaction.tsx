@@ -3,8 +3,7 @@
 import type React from "react"
 
 import { useState } from "react"
-import { createClientComponentClient } from "@/lib/supabase-client"
-import { addTransaction } from "@/lib/db-client"
+import { useSession } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -31,7 +30,15 @@ export default function AddTransaction() {
   const [notes, setNotes] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const supabase = createClientComponentClient()
+  const { data: session } = useSession()
+
+  // Funzione per triggerare refresh dei componenti
+  const triggerDataRefresh = () => {
+    // Trigger refresh eventi per tutti i componenti che ascoltano
+    window.dispatchEvent(new CustomEvent('budget-refresh'))
+    window.dispatchEvent(new CustomEvent('dashboard-refresh'))
+    window.dispatchEvent(new CustomEvent('transactions-refresh'))
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -39,11 +46,7 @@ export default function AddTransaction() {
     setError(null)
 
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      if (!user) {
+      if (!session?.user) {
         setError("Utente non autenticato")
         setLoading(false)
         return
@@ -52,18 +55,32 @@ export default function AddTransaction() {
       // Converti l'importo
       const numericAmount = Number.parseFloat(amount)
 
-      // Aggiungi la transazione
-      const result = await addTransaction(
-        user.id,
-        description,
-        type === "EXPENSE" ? -Math.abs(numericAmount) : Math.abs(numericAmount),
-        category,
-        type,
-        date,
-        notes,
-      )
+      // Crea la transazione tramite API
+      const response = await fetch('/api/transactions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          description,
+          amount: type === "EXPENSE" ? -Math.abs(numericAmount) : Math.abs(numericAmount),
+          category,
+          type,
+          date,
+          notes,
+        }),
+      })
 
-      if (result) {
+      if (!response.ok) {
+        const errorData = await response.json()
+        setError(errorData.error || "Errore nell'aggiunta della transazione")
+        setLoading(false)
+        return
+      }
+
+      const result = await response.json()
+
+      if (result.success) {
         // Reset form and close dialog
         setDescription("")
         setAmount("")
@@ -72,8 +89,14 @@ export default function AddTransaction() {
         setDate(new Date().toISOString().split("T")[0])
         setNotes("")
         setOpen(false)
+        
+        // Trigger refresh dei componenti invece di reload della pagina
+        triggerDataRefresh()
+        
+        // Mostra notifica di successo (opzionale)
+        console.log("✅ Transazione aggiunta con successo!")
       } else {
-        setError("Errore nell'aggiunta della transazione")
+        setError(result.error || "Errore nell'aggiunta della transazione")
       }
     } catch (error) {
       console.error("Error adding transaction:", error)

@@ -1,216 +1,233 @@
-import { NextResponse } from 'next/server';
-import { createServerComponentClient } from '@/lib/supabase-server';
-import type { Database } from '@/types/supabase';
+import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth/next'
+import { authOptions } from '@/lib/auth-options'
+import { prisma } from '@/lib/prisma'
 
-type Transaction = Database['public']['Tables']['financial_transactions']['Row'];
-type Holding = Database['public']['Tables']['portfolio_holdings']['Row'];
-
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    const supabase = await createServerComponentClient();
+    const session = await getServerSession(authOptions)
     
-    // Verifica autenticazione
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 });
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 })
     }
 
-    // Ottieni tutte le transazioni dell'utente
-    const { data: transactions, error: transError } = await supabase
-      .from('financial_transactions')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('date', { ascending: false });
+    // Implementazione della sincronizzazione portfolio con Prisma
+    // Questa funzione ricalcola gli holdings basandosi sulle transazioni finanziarie
+    
+    // 1. Ottieni tutte le transazioni finanziarie dell'utente
+    const transactions = await prisma.financialTransaction.findMany({
+      where: {
+        userId: session.user.id
+      },
+      orderBy: {
+        transactionDate: 'asc'
+      }
+    })
 
-    if (transError) {
-      console.error('Errore nel recupero transazioni:', transError);
-      return NextResponse.json({ error: 'Errore nel recupero transazioni' }, { status: 500 });
-    }
+    // 2. Raggruppa le transazioni per asset (assetType + assetName + tickerSymbol)
+    const holdingsMap = new Map<string, {
+      assetType: string;
+      assetName: string;
+      tickerSymbol: string | null;
+      totalQuantity: number;
+      totalCost: number;
+      transactions: any[];
+    }>()
 
-    // Calcola holdings attuali
-    const holdings = new Map<string, {
-      ticker_symbol: string | null;
-      asset_name: string;
-      total_quantity: number;
-      average_cost: number;
-      total_cost: number;
-      asset_type: string;
-    }>();
+    transactions.forEach((transaction: any) => {
+      const key = `${transaction.assetType}_${transaction.assetName}_${transaction.tickerSymbol || 'null'}`
+      
+      if (!holdingsMap.has(key)) {
+        holdingsMap.set(key, {
+          assetType: transaction.assetType,
+          assetName: transaction.assetName,
+          tickerSymbol: transaction.tickerSymbol,
+          totalQuantity: 0,
+          totalCost: 0,
+          transactions: []
+        })
+      }
 
-    transactions?.forEach((transaction: Transaction) => {
-      if (transaction.transaction_type === 'buy' || transaction.transaction_type === 'sell') {
-        const key = transaction.ticker_symbol || transaction.asset_name;
-        const existing = holdings.get(key) || {
-          ticker_symbol: transaction.ticker_symbol,
-          asset_name: transaction.asset_name,
-          total_quantity: 0,
-          average_cost: 0,
-          total_cost: 0,
-          asset_type: transaction.asset_type
-        };
+      const holding = holdingsMap.get(key)!
+      holding.transactions.push(transaction)
 
-        if (transaction.transaction_type === 'buy') {
-          const newQuantity = existing.total_quantity + (transaction.quantity || 0);
-          const newTotalCost = existing.total_cost + (transaction.total_amount || 0);
-          existing.total_quantity = newQuantity;
-          existing.total_cost = newTotalCost;
-          existing.average_cost = newQuantity > 0 ? newTotalCost / newQuantity : 0;
-        } else if (transaction.transaction_type === 'sell') {
-          existing.total_quantity -= (transaction.quantity || 0);
-          if (existing.total_quantity > 0) {
-            existing.total_cost = existing.total_quantity * existing.average_cost;
-          } else {
-            existing.total_cost = 0;
-            existing.average_cost = 0;
+      // Calcola quantità e costo basandosi sul tipo di transazione
+      const quantity = Number(transaction.quantity || 0)
+      const amount = Number(transaction.totalAmount)
+
+      switch (transaction.transactionType) {
+        case 'buy':
+          holding.totalQuantity += quantity
+          holding.totalCost += amount
+          break
+        case 'sell':
+          holding.totalQuantity -= quantity
+          // Per le vendite, riduciamo il costo proporzionalmente
+          if (holding.totalQuantity > 0) {
+            const costReduction = (quantity / (holding.totalQuantity + quantity)) * holding.totalCost
+            holding.totalCost -= costReduction
           }
-        }
-
-        if (existing.total_quantity > 0) {
-          holdings.set(key, existing);
-        } else {
-          holdings.delete(key);
-        }
+          break
+        case 'dividend':
+        case 'interest':
+          // I dividendi riducono il costo medio senza cambiare la quantità
+          holding.totalCost -= amount
+          break
+        case 'fee':
+        case 'tax':
+          // Fees e tasse aumentano il costo
+          holding.totalCost += amount
+          break
       }
-    });
+    })
 
-    // Aggiorna la tabella portfolio_holdings
-    const holdingsArray = Array.from(holdings.values());
+    // 3. Aggiorna o crea gli holdings nel database
+    const updatedHoldings = []
+    for (const [key, holdingData] of holdingsMap) {
+      if (holdingData.totalQuantity <= 0) {
+        // Se la quantità è 0 o negativa, elimina l'holding
+        await prisma.portfolioHolding.deleteMany({
+          where: {
+            userId: session.user.id,
+            assetType: holdingData.assetType,
+            assetName: holdingData.assetName,
+            tickerSymbol: holdingData.tickerSymbol
+          }
+        })
+        continue
+      }
+
+      const averageCost = holdingData.totalCost / holdingData.totalQuantity
+
+      const holding = await prisma.portfolioHolding.upsert({
+        where: {
+          userId_assetType_assetName_tickerSymbol: {
+            userId: session.user.id,
+            assetType: holdingData.assetType,
+            assetName: holdingData.assetName,
+            tickerSymbol: holdingData.tickerSymbol
+          }
+        },
+        update: {
+          totalQuantity: holdingData.totalQuantity,
+          averageCost: averageCost,
+          totalCost: holdingData.totalCost,
+          lastUpdatedAt: new Date()
+        },
+        create: {
+          userId: session.user.id,
+          assetType: holdingData.assetType,
+          assetName: holdingData.assetName,
+          tickerSymbol: holdingData.tickerSymbol,
+          totalQuantity: holdingData.totalQuantity,
+          averageCost: averageCost,
+          totalCost: holdingData.totalCost,
+          lastUpdatedAt: new Date()
+        }
+      })
+
+      updatedHoldings.push(holding)
+    }
+
+    // 4. Calcola le allocazioni
+    const totalValue = updatedHoldings.reduce((sum, h) => sum + Number(h.currentValue || h.totalCost), 0)
+    const allocations = new Map<string, number>()
     
-    // Prima elimina tutti gli holdings esistenti
-    const { error: deleteError } = await supabase
-      .from('portfolio_holdings')
-      .delete()
-      .eq('user_id', user.id);
+    updatedHoldings.forEach(holding => {
+      const value = Number(holding.currentValue || holding.totalCost)
+      const current = allocations.get(holding.assetType) || 0
+      allocations.set(holding.assetType, current + value)
+    })
 
-    if (deleteError) {
-      console.error('Errore nell\'eliminazione holdings:', deleteError);
-      return NextResponse.json({ error: 'Errore nell\'aggiornamento holdings' }, { status: 500 });
-    }
-
-    // Inserisci i nuovi holdings
-    if (holdingsArray.length > 0) {
-      const { error: insertError } = await supabase
-        .from('portfolio_holdings')
-        .insert(
-          holdingsArray.map(holding => ({
-            user_id: user.id,
-            ticker_symbol: holding.ticker_symbol,
-            asset_name: holding.asset_name,
-            total_quantity: holding.total_quantity,
-            average_cost: holding.average_cost,
-            total_cost: holding.total_cost,
-            asset_type: holding.asset_type,
-            current_price: holding.average_cost, // Sarà aggiornato dall'API prezzi
-            current_value: holding.total_quantity * holding.average_cost,
-            unrealized_gain_loss: 0,
-            percentage_of_portfolio: 0
-          }))
-        );
-
-      if (insertError) {
-        console.error('Errore nell\'inserimento holdings:', insertError);
-        return NextResponse.json({ error: 'Errore nell\'inserimento holdings' }, { status: 500 });
-      }
-    }
-
-    // Calcola allocazioni per asset type
-    const allocations = new Map<string, number>();
-    let totalValue = 0;
-
-    holdingsArray.forEach(holding => {
-      const value = holding.total_quantity * holding.average_cost;
-      totalValue += value;
-      const currentAllocation = allocations.get(holding.asset_type) || 0;
-      allocations.set(holding.asset_type, currentAllocation + value);
-    });
-
-    // Aggiorna portfolio_allocations
-    const { error: deleteAllocError } = await supabase
-      .from('portfolio_allocations')
-      .delete()
-      .eq('user_id', user.id);
-
-    if (deleteAllocError) {
-      console.error('Errore nell\'eliminazione allocazioni:', deleteAllocError);
-      return NextResponse.json({ error: 'Errore nell\'aggiornamento allocazioni' }, { status: 500 });
-    }
-
-    if (totalValue > 0) {
-      const allocationsArray = Array.from(allocations.entries()).map(([assetType, value]) => ({
-        user_id: user.id,
-        asset_type: assetType,
-        current_percentage: (value / totalValue) * 100,
-        current_value: value
-      }));
-
-      const { error: insertAllocError } = await supabase
-        .from('portfolio_allocations')
-        .insert(allocationsArray);
-
-      if (insertAllocError) {
-        console.error('Errore nell\'inserimento allocazioni:', insertAllocError);
-        return NextResponse.json({ error: 'Errore nell\'inserimento allocazioni' }, { status: 500 });
-      }
-    }
+    const allocationData = Array.from(allocations.entries()).map(([assetType, value]) => ({
+      asset_type: assetType,
+      value,
+      percentage: totalValue > 0 ? (value / totalValue) * 100 : 0
+    }))
 
     return NextResponse.json({
       success: true,
-      holdings: holdingsArray,
-      allocations: Array.from(allocations.entries()).map(([type, value]) => ({
-        asset_type: type,
-        value,
-        percentage: totalValue > 0 ? (value / totalValue) * 100 : 0
+      message: 'Portfolio sincronizzato con successo',
+      holdings: updatedHoldings.map(h => ({
+        id: h.id,
+        asset_type: h.assetType,
+        asset_name: h.assetName,
+        ticker_symbol: h.tickerSymbol,
+        total_quantity: Number(h.totalQuantity),
+        average_cost: Number(h.averageCost),
+        total_cost: Number(h.totalCost),
+        current_price: h.currentPrice ? Number(h.currentPrice) : null,
+        current_value: h.currentValue ? Number(h.currentValue) : null,
+        last_updated: h.lastUpdatedAt.toISOString()
       })),
+      allocations: allocationData,
       totalValue
-    });
+    })
 
   } catch (error) {
-    console.error('Errore nella sincronizzazione portfolio:', error);
-    return NextResponse.json({ error: 'Errore interno del server' }, { status: 500 });
+    console.error('Errore nella sincronizzazione portfolio:', error)
+    return NextResponse.json({ error: 'Errore interno del server' }, { status: 500 })
   }
 }
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
-    const supabase = await createServerComponentClient();
+    const session = await getServerSession(authOptions)
     
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 });
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Non autorizzato' }, { status: 401 })
     }
 
-    // Ottieni holdings attuali
-    const { data: holdings, error: holdingsError } = await supabase
-      .from('portfolio_holdings')
-      .select('*')
-      .eq('user_id', user.id);
+    // Ottieni tutti gli holdings dell'utente
+    const holdings = await prisma.portfolioHolding.findMany({
+      where: {
+        userId: session.user.id
+      },
+      orderBy: {
+        currentValue: 'desc'
+      }
+    })
 
-    if (holdingsError) {
-      console.error('Errore nel recupero holdings:', holdingsError);
-      return NextResponse.json({ error: 'Errore nel recupero holdings' }, { status: 500 });
-    }
+    // Calcola le allocazioni
+    const totalValue = holdings.reduce((sum: number, h: any) => sum + Number(h.currentValue || h.totalCost), 0)
+    const allocationsMap = new Map<string, number>()
+    
+    holdings.forEach((holding: any) => {
+      const value = Number(holding.currentValue || holding.totalCost)
+      const current = allocationsMap.get(holding.assetType) || 0
+      allocationsMap.set(holding.assetType, current + value)
+    })
 
-    // Ottieni allocazioni attuali
-    const { data: allocations, error: allocError } = await supabase
-      .from('portfolio_allocations')
-      .select('*')
-      .eq('user_id', user.id);
+    const allocations = Array.from(allocationsMap.entries()).map(([assetType, value]) => ({
+      asset_type: assetType,
+      value,
+      percentage: totalValue > 0 ? (value / totalValue) * 100 : 0
+    }))
 
-    if (allocError) {
-      console.error('Errore nel recupero allocazioni:', allocError);
-      return NextResponse.json({ error: 'Errore nel recupero allocazioni' }, { status: 500 });
-    }
-
-    const totalValue = holdings?.reduce((sum: number, holding: Holding) => sum + (holding.current_value || 0), 0) || 0;
+    // Formatta i dati per il frontend
+    const formattedHoldings = holdings.map((holding: any) => ({
+      id: holding.id,
+      asset_type: holding.assetType,
+      asset_name: holding.assetName,
+      ticker_symbol: holding.tickerSymbol,
+      total_quantity: Number(holding.totalQuantity),
+      average_cost: Number(holding.averageCost),
+      total_cost: Number(holding.totalCost),
+      current_price: holding.currentPrice ? Number(holding.currentPrice) : null,
+      current_value: holding.currentValue ? Number(holding.currentValue) : null,
+      unrealized_gain_loss: holding.unrealizedGainLoss ? Number(holding.unrealizedGainLoss) : null,
+      percentage_of_portfolio: holding.percentageOfPortfolio ? Number(holding.percentageOfPortfolio) : null,
+      last_updated: holding.lastUpdatedAt.toISOString()
+    }))
 
     return NextResponse.json({
-      holdings: holdings || [],
-      allocations: allocations || [],
+      holdings: formattedHoldings,
+      allocations,
       totalValue
-    });
+    })
 
   } catch (error) {
-    console.error('Errore nel recupero dati portfolio:', error);
-    return NextResponse.json({ error: 'Errore interno del server' }, { status: 500 });
+    console.error('Errore nel recupero dati portfolio:', error)
+    return NextResponse.json({ error: 'Errore interno del server' }, { status: 500 })
   }
 }

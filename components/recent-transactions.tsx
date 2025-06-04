@@ -1,12 +1,25 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { createClientComponentClient } from "@/lib/supabase-client"
-import { getRecentTransactions } from "@/lib/db-client"
+import { useSession } from "next-auth/react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Skeleton } from "@/components/ui/skeleton"
 import AddTransaction from "@/components/transactions/add-transaction"
 import { ArrowDownLeft, Coffee, Home, ShoppingBag, Car, Zap, HelpCircle } from "lucide-react"
+
+// Funzione per ottenere le transazioni recenti tramite API
+async function getRecentTransactions() {
+  try {
+    const response = await fetch('/api/transactions/recent')
+    if (!response.ok) {
+      throw new Error('Failed to fetch transactions')
+    }
+    return await response.json()
+  } catch (error) {
+    console.error('Error fetching recent transactions:', error)
+    return []
+  }
+}
 
 // Funzione per ottenere l'icona in base alla categoria
 const getCategoryIcon = (category: string) => {
@@ -48,57 +61,12 @@ const getCategoryColor = (category: string) => {
   }
 }
 
-// Dati di esempio per le transazioni
-const demoTransactions = [
-  {
-    id: "1",
-    description: "Affitto",
-    amount: -800,
-    date: "2023-05-01",
-    category: "Casa",
-  },
-  {
-    id: "2",
-    description: "Stipendio",
-    amount: 2500,
-    date: "2023-05-01",
-    category: "Entrate",
-  },
-  {
-    id: "3",
-    description: "Supermercato",
-    amount: -120,
-    date: "2023-05-03",
-    category: "Cibo",
-  },
-  {
-    id: "4",
-    description: "Ristorante",
-    amount: -45,
-    date: "2023-05-05",
-    category: "Svago",
-  },
-  {
-    id: "5",
-    description: "Benzina",
-    amount: -60,
-    date: "2023-05-07",
-    category: "Trasporti",
-  },
-  {
-    id: "6",
-    description: "Caffè",
-    amount: -3.5,
-    date: "2023-05-08",
-    category: "Svago",
-  },
-]
 
 export default function RecentTransactions() {
   const [transactions, setTransactions] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const supabase = createClientComponentClient()
+  const { data: session, status } = useSession()
 
   // Funzione per formattare la data
   const formatDate = (dateString: string) => {
@@ -109,25 +77,19 @@ export default function RecentTransactions() {
   useEffect(() => {
     const fetchTransactions = async () => {
       try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser()
+        if (status === "loading") {
+          return // Attendi che la sessione sia caricata
+        }
 
-        if (!user) {
-          // Se non c'è un utente autenticato, usa dati di esempio
-          setTransactions(demoTransactions)
+        if (!session?.user) {
+          // Se non c'è un utente autenticato, mostra solo un messaggio
+          setTransactions([])
           setLoading(false)
           return
         }
 
-        const recentTransactions = await getRecentTransactions(user.id)
-
-        if (recentTransactions.length === 0) {
-          // Se non ci sono dati, usa dati di esempio
-          setTransactions(demoTransactions)
-        } else {
-          setTransactions(recentTransactions)
-        }
+        const recentTransactions = await getRecentTransactions()
+        setTransactions(recentTransactions) // Usa sempre i dati reali, anche se vuoti
       } catch (error) {
         console.error("Error fetching transactions:", error)
         setError("Errore nel caricamento delle transazioni")
@@ -137,7 +99,7 @@ export default function RecentTransactions() {
     }
 
     fetchTransactions()
-  }, [supabase])
+  }, [session, status])
 
   if (loading) {
     return (
@@ -163,6 +125,22 @@ export default function RecentTransactions() {
 
   if (error) {
     return <div className="text-center text-red-500">{error}</div>
+  }
+
+  if (transactions.length === 0 && !loading && !error) {
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-end">
+          <AddTransaction />
+        </div>
+        <div className="flex flex-col items-center justify-center py-8 text-center">
+          <p className="text-muted-foreground">Nessuna transazione trovata</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Aggiungi la tua prima transazione per iniziare
+          </p>
+        </div>
+      </div>
+    )
   }
 
   return (

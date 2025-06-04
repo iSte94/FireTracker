@@ -2,25 +2,32 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowDown, ArrowUp, DollarSign, LineChart, PiggyBank, Target } from "lucide-react"
+import { LineChart } from "lucide-react"
 import { LazyNetWorthChart, LazyExpensesChart } from "@/components/lazy-chart-wrapper"
 import FireNumberCard from "@/components/fire-number-card"
 import ProgressOverview from "@/components/progress-overview"
 import RecentTransactions from "@/components/recent-transactions"
 import GoalsList from "@/components/goals-list"
-import { InvestmentGoalsWidget } from "@/components/dashboard/investment-goals-widget"
-import { PortfolioOverviewWidget } from "@/components/dashboard/portfolio-overview-widget"
 import { useIsFireBudget, useIsFireOnly } from "@/components/providers/view-mode-provider"
-import { TimeToFireWidget } from "@/components/dashboard/time-to-fire-widget"
-import { SavingsRateWidget } from "@/components/dashboard/savings-rate-widget"
-import { SafeWithdrawalRateWidget } from "@/components/dashboard/safe-withdrawal-rate-widget"
-import { FireTypesProgressWidget } from "@/components/dashboard/fire-types-progress-widget"
-import { FinancialTransactionsWidget } from "@/components/dashboard/financial-transactions-widget"
-import { PortfolioDiversificationWidget } from "@/components/dashboard/portfolio-diversification-widget"
-import { HistoricalReturnsWidget } from "@/components/dashboard/historical-returns-widget"
-import { RiskReturnWidget } from "@/components/dashboard/risk-return-widget"
-import { DividendsFlowWidget } from "@/components/dashboard/dividends-flow-widget"
 import { FireInsights } from "@/components/fire/fire-insights"
+import DynamicStatsWidget from "@/components/dashboard/dynamic-stats-widget"
+import { Suspense } from "react"
+import { Skeleton } from "@/components/ui/skeleton"
+
+// Lazy imports per i widget dashboard
+import {
+  LazyTimeToFireWidget,
+  LazySavingsRateWidget,
+  LazySafeWithdrawalRateWidget,
+  LazyFireTypesProgressWidget,
+  LazyPortfolioOverviewWidget,
+  LazyInvestmentGoalsWidget,
+  LazyFinancialTransactionsWidget,
+  LazyPortfolioDiversificationWidget,
+  LazyHistoricalReturnsWidget,
+  LazyRiskReturnWidget,
+  LazyDividendsFlowWidget,
+} from "@/components/dashboard/lazy-dashboard-widgets"
 
 export default function DashboardPage() {
   const isFireBudget = useIsFireBudget()
@@ -37,112 +44,10 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        {/* Cards superiori - diverse per modalità */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Patrimonio Netto</CardTitle>
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">€120,000</div>
-              <p className="text-xs text-muted-foreground">
-                <span className="text-emerald-500 flex items-center">
-                  <ArrowUp className="mr-1 h-4 w-4" />
-                  +20.1%
-                </span>{" "}
-                rispetto all'anno scorso
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Tasso di Risparmio</CardTitle>
-              <PiggyBank className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">42%</div>
-              <p className="text-xs text-muted-foreground">
-                <span className="text-emerald-500 flex items-center">
-                  <ArrowUp className="mr-1 h-4 w-4" />
-                  +5%
-                </span>{" "}
-                rispetto al mese scorso
-              </p>
-            </CardContent>
-          </Card>
-          {isFireBudget ? (
-            <>
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Spese Mensili</CardTitle>
-                  <ArrowDown className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">€2,350</div>
-                  <p className="text-xs text-muted-foreground">
-                    <span className="text-red-500 flex items-center">
-                      <ArrowUp className="mr-1 h-4 w-4" />
-                      +2.5%
-                    </span>{" "}
-                    rispetto al mese scorso
-                  </p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Anni al FIRE</CardTitle>
-                  <Target className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">12.5</div>
-                  <p className="text-xs text-muted-foreground">
-                    <span className="text-emerald-500 flex items-center">
-                      <ArrowDown className="mr-1 h-4 w-4" />
-                      -0.3
-                    </span>{" "}
-                    rispetto all'anno scorso
-                  </p>
-                </CardContent>
-              </Card>
-            </>
-          ) : (
-            <>
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Anni al FIRE</CardTitle>
-                  <Target className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">12.5</div>
-                  <p className="text-xs text-muted-foreground">
-                    <span className="text-emerald-500 flex items-center">
-                      <ArrowDown className="mr-1 h-4 w-4" />
-                      -0.3
-                    </span>{" "}
-                    rispetto all'anno scorso
-                  </p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Rendimento YTD</CardTitle>
-                  <LineChart className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">+8.3%</div>
-                  <p className="text-xs text-muted-foreground">
-                    <span className="text-emerald-500 flex items-center">
-                      <ArrowUp className="mr-1 h-4 w-4" />
-                      +2.1%
-                    </span>{" "}
-                    sopra il benchmark
-                  </p>
-                </CardContent>
-              </Card>
-            </>
-          )}
-        </div>
+        {/* Cards superiori - Ora dinamiche! */}
+        <Suspense fallback={<DynamicStatsSkeleton />}>
+          <DynamicStatsWidget isFireBudget={isFireBudget} />
+        </Suspense>
 
         <Tabs defaultValue="overview" className="space-y-4">
           <TabsList>
@@ -157,8 +62,8 @@ export default function DashboardPage() {
               <>
                 {/* Layout per modalità Solo FIRE */}
                 <div className="grid gap-4 md:grid-cols-2">
-                  <TimeToFireWidget />
-                  <SavingsRateWidget />
+                  <LazyTimeToFireWidget />
+                  <LazySavingsRateWidget />
                 </div>
                 
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -183,32 +88,32 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
-                  <SafeWithdrawalRateWidget />
-                  <FireTypesProgressWidget />
+                  <LazySafeWithdrawalRateWidget />
+                  <LazyFireTypesProgressWidget />
                 </div>
 
                 {/* FIRE Insights - suggerimenti personalizzati */}
                 <FireInsights />
 
                 <div className="grid gap-4 md:grid-cols-2">
-                  <PortfolioOverviewWidget />
-                  <InvestmentGoalsWidget />
+                  <LazyPortfolioOverviewWidget />
+                  <LazyInvestmentGoalsWidget />
                 </div>
 
-                <FinancialTransactionsWidget />
+                <LazyFinancialTransactionsWidget />
 
                 {/* Sezione Analisi Portafoglio */}
                 <div className="space-y-4">
                   <h2 className="text-2xl font-bold">Analisi Portafoglio</h2>
                   
                   <div className="grid gap-4 md:grid-cols-2">
-                    <PortfolioDiversificationWidget />
-                    <HistoricalReturnsWidget />
+                    <LazyPortfolioDiversificationWidget />
+                    <LazyHistoricalReturnsWidget />
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
-                    <RiskReturnWidget />
-                    <DividendsFlowWidget />
+                    <LazyRiskReturnWidget />
+                    <LazyDividendsFlowWidget />
                   </div>
                 </div>
               </>
@@ -246,8 +151,8 @@ export default function DashboardPage() {
                 </div>
                 
                 <div className="grid gap-4 md:grid-cols-2">
-                  <PortfolioOverviewWidget />
-                  <InvestmentGoalsWidget />
+                  <LazyPortfolioOverviewWidget />
+                  <LazyInvestmentGoalsWidget />
                 </div>
               </>
             )}
@@ -256,8 +161,8 @@ export default function DashboardPage() {
             {isFireOnly ? (
               <>
                 <div className="grid gap-4 md:grid-cols-2">
-                  <SavingsRateWidget />
-                  <TimeToFireWidget />
+                  <LazySavingsRateWidget />
+                  <LazyTimeToFireWidget />
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
                   <Card>
@@ -269,9 +174,9 @@ export default function DashboardPage() {
                       <ProgressOverview />
                     </CardContent>
                   </Card>
-                  <SafeWithdrawalRateWidget />
+                  <LazySafeWithdrawalRateWidget />
                 </div>
-                <FireTypesProgressWidget />
+                <LazyFireTypesProgressWidget />
               </>
             ) : (
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
@@ -303,11 +208,11 @@ export default function DashboardPage() {
           </TabsContent>
           <TabsContent value="investments" className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
-              <PortfolioOverviewWidget />
-              <InvestmentGoalsWidget />
+              <LazyPortfolioOverviewWidget />
+              <LazyInvestmentGoalsWidget />
             </div>
             {isFireOnly ? (
-              <FinancialTransactionsWidget />
+              <LazyFinancialTransactionsWidget />
             ) : (
               <Card>
                 <CardHeader>
@@ -347,5 +252,24 @@ export default function DashboardPage() {
         </Tabs>
       </div>
     </main>
+  )
+}
+
+function DynamicStatsSkeleton() {
+  return (
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {[1, 2, 3, 4].map((i) => (
+        <Card key={i}>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-4 w-4" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-8 w-20 mb-2" />
+            <Skeleton className="h-3 w-28" />
+          </CardContent>
+        </Card>
+      ))}
+    </div>
   )
 }

@@ -293,3 +293,123 @@ export function formatYears(years: number): string {
   
   return `${wholeYears} ${wholeYears === 1 ? 'anno' : 'anni'} e ${months} ${months === 1 ? 'mese' : 'mesi'}`
 }
+
+// === FUNZIONI AGGIUNTIVE PER L'API ===
+
+import { prisma } from './prisma'
+
+// Calcola il FIRE number standard
+export function calculateFireNumber(annualExpenses: number, withdrawalRate: number = 4): number {
+  return annualExpenses * (100 / withdrawalRate)
+}
+
+// Calcola il Coast FIRE number
+export function calculateCoastFireNumber(
+  annualExpenses: number,
+  withdrawalRate: number = 4,
+  currentAge: number = 30,
+  fireAge: number = 65,
+  expectedReturn: number = 7
+): number {
+  const yearsUntilRetirement = fireAge - currentAge
+  const fireNumber = calculateFireNumber(annualExpenses, withdrawalRate)
+  return calculateCoastFire(fireNumber, yearsUntilRetirement, expectedReturn / 100)
+}
+
+// Calcola il Barista FIRE number
+export function calculateBaristaFireNumber(
+  annualExpenses: number,
+  withdrawalRate: number = 4,
+  partTimeIncome: number = 20000
+): number {
+  const baristaFire = calculateBaristaFire(annualExpenses, partTimeIncome, withdrawalRate)
+  return baristaFire.fireNumber
+}
+
+// Ottiene il patrimonio netto corrente dal database
+export async function getCurrentNetWorth(userId: string): Promise<number> {
+  try {
+    // Ottieni tutte le transazioni di investimento dell'utente
+    const transactions = await prisma.financialTransaction.findMany({
+      where: { userId },
+      select: {
+        totalAmount: true,
+        transactionType: true
+      }
+    })
+
+    // Calcola il patrimonio netto: acquisti - vendite
+    let netWorth = 0
+    transactions.forEach(transaction => {
+      const amount = Number(transaction.totalAmount)
+      if (transaction.transactionType === 'buy') {
+        netWorth += amount
+      } else if (transaction.transactionType === 'sell') {
+        netWorth -= amount
+      }
+    })
+
+    return Math.max(0, netWorth)
+  } catch (error) {
+    console.error('Error calculating net worth:', error)
+    return 0
+  }
+}
+
+// Ottiene le spese annuali dal database
+export async function getAnnualExpenses(userId: string): Promise<number> {
+  try {
+    const currentDate = new Date()
+    const startOfYear = new Date(currentDate.getFullYear(), 0, 1)
+    const endOfYear = new Date(currentDate.getFullYear(), 11, 31)
+
+    const expenseTransactions = await prisma.transaction.findMany({
+      where: {
+        userId,
+        type: 'EXPENSE',
+        date: {
+          gte: startOfYear,
+          lte: endOfYear,
+        },
+      },
+      select: {
+        amount: true,
+      },
+    })
+
+    const yearlyExpenses = expenseTransactions.reduce((sum, transaction) => {
+      return sum + Math.abs(Number(transaction.amount))
+    }, 0)
+
+    // Se non ci sono dati per l'anno corrente, calcola la media mensile e moltiplicala per 12
+    if (yearlyExpenses === 0) {
+      const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)
+      const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0)
+
+      const monthlyTransactions = await prisma.transaction.findMany({
+        where: {
+          userId,
+          type: 'EXPENSE',
+          date: {
+            gte: startOfMonth,
+            lte: endOfMonth,
+          },
+        },
+        select: {
+          amount: true,
+        },
+      })
+
+      const monthlyExpenses = monthlyTransactions.reduce((sum, transaction) => {
+        return sum + Math.abs(Number(transaction.amount))
+      }, 0)
+
+      return monthlyExpenses * 12
+    }
+
+    return yearlyExpenses
+  } catch (error) {
+    console.error('Error calculating annual expenses:', error)
+    return 50000 // Valore di fallback realistico
+  }
+}

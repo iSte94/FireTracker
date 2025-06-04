@@ -4,7 +4,7 @@ import type React from "react"
 
 import { useState, useEffect } from "react"
 import { useRouter, usePathname } from "next/navigation"
-import { createClientComponentClient } from "@/lib/supabase-client"
+import { signIn } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -20,23 +20,11 @@ export default function AuthForm() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
-  const supabase = createClientComponentClient()
-  const pathname = usePathname()
+  // const supabase = createClientComponentClient() // Rimosso client Supabase
+  const pathname = usePathname() // Mantenuto per eventuale logica di redirect pre-autenticazione
 
-  useEffect(() => {
-    const checkUserAndRedirect = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        // Se l'utente è già loggato e si trova sulla pagina di login o registrazione,
-        // reindirizzalo al dashboard.
-        if (pathname === '/login' || pathname === '/register') {
-          router.push('/dashboard');
-        }
-      }
-    };
-
-    checkUserAndRedirect();
-  }, [router, supabase, pathname]);
+  // useEffect rimosso perché la gestione della sessione e redirect
+  // per utenti già loggati sarà gestita da next-auth middleware o nelle pagine stesse.
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -44,7 +32,6 @@ export default function AuthForm() {
     setError(null)
 
     try {
-      // Usa la nostra API per la registrazione
       const response = await fetch('/api/register', {
         method: 'POST',
         headers: {
@@ -67,12 +54,33 @@ export default function AuthForm() {
       }
 
       console.log('Registration successful:', result.message)
-      // Successo - vai alla pagina di verifica email
-      router.push("/auth/check-email")
+      // Opzione 1: Login automatico dopo la registrazione
+      const signInResult = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+      })
+
+      if (signInResult?.error) {
+        setError(signInResult.error === "CredentialsSignin" ? "Credenziali non valide dopo la registrazione." : signInResult.error)
+        // Potresti reindirizzare alla pagina di login con un messaggio di successo per la registrazione
+        // router.push('/login?message=Registrazione completata! Effettua il login.');
+      } else if (signInResult?.ok) {
+        router.push("/dashboard") // O la pagina desiderata dopo il login
+        router.refresh()
+      } else {
+         // Fallback se signInResult è undefined o non ha ok/error
+        setError("Registrazione completata, ma si è verificato un problema con il login automatico.")
+        router.push("/login?message=Registrazione completata! Effettua il login.")
+      }
+      // Opzione 2: Reindirizza alla pagina di login con messaggio di successo
+      // setError("Registrazione completata con successo! Ora puoi effettuare il login.")
+      // router.push("/login")
+
 
     } catch (err) {
       console.error('Registration exception:', err)
-      setError('Si è verificato un errore durante la registrazione')
+      setError('Si è verificato un errore imprevisto durante la registrazione')
     }
 
     setLoading(false)
@@ -83,32 +91,33 @@ export default function AuthForm() {
     setLoading(true)
     setError(null)
 
-    console.log('=== LOGIN FORM DEBUG ===')
     console.log('Tentativo di login per:', email)
 
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const result = await signIn('credentials', {
       email,
       password,
+      redirect: false, // Importante per gestire la risposta qui
     })
 
-    console.log('Login result - Error:', error)
-    console.log('Login result - Session presente:', !!data.session)
-    console.log('Login result - User presente:', !!data.user)
+    console.log('NextAuth signIn result:', result)
 
-    if (error) {
-      console.error('Login error:', error)
-      setError(error.message)
-    } else {
+    if (result?.error) {
+      console.error('Login error:', result.error)
+      // next-auth potrebbe restituire "CredentialsSignin" per errori generici di credenziali
+      if (result.error === "CredentialsSignin") {
+        setError("Credenziali non valide. Controlla email e password.")
+      } else {
+        setError(result.error)
+      }
+    } else if (result?.ok) {
       console.log('Login successful, redirecting to dashboard...')
-      
-      // Verifica la sessione dopo il login
-      const { data: sessionData } = await supabase.auth.getSession()
-      console.log('Sessione dopo login:', !!sessionData.session)
-      
       router.push("/dashboard")
-      router.refresh()
+      router.refresh() // Assicura che lo stato della sessione sia aggiornato
+    } else {
+      // Caso in cui result è undefined o non ha né error né ok
+      // Questo non dovrebbe accadere con il provider Credentials se configurato correttamente
+      setError("Si è verificato un errore sconosciuto durante il login.")
     }
-
     setLoading(false)
   }
 

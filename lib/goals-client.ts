@@ -1,53 +1,47 @@
-import { createClientComponentClient } from '@/lib/supabase-client';
-import type { 
-  InvestmentGoal, 
-  PortfolioAllocation, 
-  FinancialTransaction, 
-  PortfolioHolding,
+import { prisma } from "../lib/prisma";
+import {
+  InvestmentGoal,
+  PortfolioAllocation,
+  FinancialTransaction,
+  PortfolioHolding, // Importato da Prisma
+  AssetClass,
+  InvestmentGoalStatus,
+  InvestmentGoalType,
+  Prisma
+} from "@prisma/client";
+import type {
+  // FinancialTransaction as FinancialTransactionTypeLocal, // Useremo Prisma.FinancialTransaction
+  // PortfolioHolding as PortfolioHoldingTypeLocal, // Useremo Prisma.PortfolioHolding
   GoalFormData,
   TransactionFormData,
   AllocationFormData
 } from '@/types/investment';
+import { financialTransactionsClient, Holding } from './financial-transactions-client'; // Importa il client migrato e Holding
 
-// Use the same client instance as other parts of the app
-const supabase = createClientComponentClient();
 
 // Investment Goals
 export const goalsClient = {
   // Get all goals for the current user
-  async getGoals(status?: string) {
+  async getGoals(userId: string, status?: InvestmentGoalStatus): Promise<InvestmentGoal[]> {
     try {
-      console.log('[GoalsClient] getGoals chiamato con status:', status);
-      
-      // Verifica autenticazione
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) {
-        console.error('[GoalsClient] Errore autenticazione:', authError);
-        throw new Error('Utente non autenticato');
-      }
-      
-      console.log('[GoalsClient] Utente autenticato:', user.id);
+      console.log('[GoalsClient] getGoals chiamato con userId:', userId, 'e status:', status);
+      if (!userId) throw new Error('UserID è obbligatorio per getGoals');
 
-      let query = supabase
-        .from('investment_goals')
-        .select(`
-          *,
-          portfolio_allocations (*)
-        `)
-        .order('created_at', { ascending: false });
-
+      const whereClause: Prisma.InvestmentGoalWhereInput = { userId };
       if (status) {
-        query = query.eq('status', status);
+        whereClause.status = status;
       }
 
-      const { data, error } = await query;
-      if (error) {
-        console.error('[GoalsClient] Errore query database:', error);
-        throw error;
-      }
+      const goals = await prisma.investmentGoal.findMany({
+        where: whereClause,
+        include: {
+          portfolioAllocations: true, // Nome corretto della relazione in Prisma
+        },
+        orderBy: { createdAt: 'desc' },
+      });
       
-      console.log('[GoalsClient] Goals trovati:', data?.length || 0);
-      return data as InvestmentGoal[];
+      console.log('[GoalsClient] Goals trovati:', goals.length);
+      return goals;
     } catch (error) {
       console.error('[GoalsClient] Errore nel recupero dei goals:', error);
       throw error;
@@ -55,26 +49,25 @@ export const goalsClient = {
   },
 
   // Get a single goal by ID
-  async getGoal(id: string) {
+  async getGoal(userId: string, id: string): Promise<InvestmentGoal | null> {
     try {
-      console.log('[GoalsClient] getGoal chiamato per ID:', id);
+      console.log('[GoalsClient] getGoal chiamato per userId:', userId, 'ID:', id);
+      if (!userId || !id) throw new Error('UserID e GoalID sono obbligatori per getGoal');
       
-      const { data, error } = await supabase
-        .from('investment_goals')
-        .select(`
-          *,
-          portfolio_allocations (*)
-        `)
-        .eq('id', id)
-        .single();
+      const goal = await prisma.investmentGoal.findUnique({
+        where: { id, userId }, // Assicura che l'utente possa accedere solo ai propri goal
+        include: {
+          portfolioAllocations: true,
+        },
+      });
 
-      if (error) {
-        console.error('[GoalsClient] Errore query database:', error);
-        throw error;
+      if (!goal) {
+        console.log('[GoalsClient] Goal non trovato o non autorizzato');
+        return null;
       }
       
-      console.log('[GoalsClient] Goal trovato:', data?.id);
-      return data as InvestmentGoal;
+      console.log('[GoalsClient] Goal trovato:', goal.id);
+      return goal;
     } catch (error) {
       console.error('[GoalsClient] Errore nel recupero del goal:', error);
       throw error;
@@ -82,61 +75,38 @@ export const goalsClient = {
   },
 
   // Create a new goal
-  async createGoal(goalData: GoalFormData) {
+  async createGoal(userId: string, goalData: GoalFormData): Promise<InvestmentGoal> {
     try {
-      console.log('[GoalsClient] createGoal chiamato con:', goalData);
-      
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) {
-        console.error('[GoalsClient] Errore autenticazione:', authError);
-        throw new Error('Utente non autenticato');
-      }
+      console.log('[GoalsClient] createGoal chiamato con userId:', userId, 'e dati:', goalData);
+      if (!userId) throw new Error('UserID è obbligatorio per createGoal');
 
-      // Start a transaction
-      const { data: goal, error: goalError } = await supabase
-        .from('investment_goals')
-        .insert({
-          user_id: user.id,
-          title: goalData.title,
-          description: goalData.description,
-          goal_type: goalData.goal_type,
-          target_value: goalData.target_value,
-          target_date: goalData.target_date,
-          current_value: 0,
-          status: 'active'
-        })
-        .select()
-        .single();
+      const { allocations, ...restGoalData } = goalData;
 
-      if (goalError) {
-        console.error('[GoalsClient] Errore creazione goal:', goalError);
-        throw goalError;
-      }
-
-      console.log('[GoalsClient] Goal creato con ID:', goal.id);
-
-      // If there are allocations, insert them
-      if (goalData.allocations && goalData.allocations.length > 0) {
-        const allocations = goalData.allocations.map(allocation => ({
-          goal_id: goal.id,
-          asset_class: allocation.asset_class,
-          target_percentage: allocation.target_percentage,
-          current_percentage: 0
-        }));
-
-        const { error: allocError } = await supabase
-          .from('portfolio_allocations')
-          .insert(allocations);
-
-        if (allocError) {
-          console.error('[GoalsClient] Errore creazione allocations:', allocError);
-          throw allocError;
+      const createdGoal = await prisma.investmentGoal.create({
+        data: {
+          ...restGoalData,
+          userId,
+          currentValue: 0, // Prisma.Decimal
+          targetValue: goalData.target_value, // Prisma.Decimal
+          status: InvestmentGoalStatus.active, // Usa l'enum Prisma
+          goalType: goalData.goal_type as InvestmentGoalType, // Cast al tipo enum Prisma
+          // targetDate deve essere un oggetto Date o una stringa ISO
+          targetDate: goalData.target_date ? new Date(goalData.target_date) : null,
+          portfolioAllocations: allocations && allocations.length > 0 ? {
+            create: allocations.map(alloc => ({
+              assetClass: alloc.asset_class as AssetClass, // Cast al tipo enum Prisma
+              targetPercentage: alloc.target_percentage, // Prisma.Decimal
+              currentPercentage: 0, // Prisma.Decimal
+            })),
+          } : undefined,
+        },
+        include: {
+          portfolioAllocations: true,
         }
-        
-        console.log('[GoalsClient] Allocations create:', allocations.length);
-      }
+      });
 
-      return goal as InvestmentGoal;
+      console.log('[GoalsClient] Goal creato con ID:', createdGoal.id);
+      return createdGoal;
     } catch (error) {
       console.error('[GoalsClient] Errore nella creazione del goal:', error);
       throw error;
@@ -144,54 +114,61 @@ export const goalsClient = {
   },
 
   // Update a goal
-  async updateGoal(id: string, updates: Partial<GoalFormData>) {
+  async updateGoal(userId: string, id: string, updates: Partial<GoalFormData>): Promise<InvestmentGoal | null> {
     try {
-      console.log('[GoalsClient] updateGoal chiamato per ID:', id);
-      
-      const { error } = await supabase
-        .from('investment_goals')
-        .update({
-          title: updates.title,
-          description: updates.description,
-          goal_type: updates.goal_type,
-          target_value: updates.target_value,
-          target_date: updates.target_date,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', id);
+      console.log('[GoalsClient] updateGoal chiamato per userId:', userId, 'ID:', id);
+      if (!userId || !id) throw new Error('UserID e GoalID sono obbligatori per updateGoal');
 
-      if (error) {
-        console.error('[GoalsClient] Errore aggiornamento goal:', error);
-        throw error;
+      // Verifica che il goal appartenga all'utente
+      const existingGoal = await prisma.investmentGoal.findUnique({ where: { id, userId } });
+      if (!existingGoal) {
+        console.error('[GoalsClient] Goal non trovato o utente non autorizzato.');
+        throw new Error('Goal non trovato o non autorizzato.');
       }
+      
+      const { allocations, ...goalUpdates } = updates;
 
-      // If allocations are provided, update them
-      if (updates.allocations) {
-        // Delete existing allocations
-        await supabase
-          .from('portfolio_allocations')
-          .delete()
-          .eq('goal_id', id);
+      const dataToUpdate: Prisma.InvestmentGoalUpdateInput = {
+        ...goalUpdates,
+        updatedAt: new Date(), // Prisma gestisce updatedAt automaticamente
+      };
+      if (goalUpdates.target_value !== undefined) dataToUpdate.targetValue = goalUpdates.target_value;
+      if (goalUpdates.goal_type !== undefined) dataToUpdate.goalType = goalUpdates.goal_type as InvestmentGoalType;
+      if (goalUpdates.target_date !== undefined) dataToUpdate.targetDate = goalUpdates.target_date ? new Date(goalUpdates.target_date) : null;
 
-        // Insert new allocations
-        const allocations = updates.allocations.map(allocation => ({
-          goal_id: id,
-          asset_class: allocation.asset_class,
-          target_percentage: allocation.target_percentage,
-          current_percentage: 0
-        }));
 
-        const { error: allocError } = await supabase
-          .from('portfolio_allocations')
-          .insert(allocations);
+      const updatedGoal = await prisma.investmentGoal.update({
+        where: { id },
+        data: dataToUpdate,
+        include: { portfolioAllocations: true },
+      });
 
-        if (allocError) {
-          console.error('[GoalsClient] Errore aggiornamento allocations:', allocError);
-          throw allocError;
+      // Se le allocazioni sono fornite, aggiornale (delete + create)
+      if (allocations) {
+        await prisma.portfolioAllocation.deleteMany({
+          where: { goalId: id },
+        });
+        if (allocations.length > 0) {
+          await prisma.portfolioAllocation.createMany({
+            data: allocations.map(alloc => ({
+              goalId: id,
+              assetClass: alloc.asset_class as AssetClass,
+              targetPercentage: alloc.target_percentage,
+              currentPercentage: 0, // O calcola/mantieni il valore esistente se necessario
+            })),
+          });
         }
+         // Ricarica il goal per includere le nuove allocazioni
+        const reloadedGoal = await prisma.investmentGoal.findUnique({
+            where: { id },
+            include: { portfolioAllocations: true },
+        });
+        console.log('[GoalsClient] Goal e allocazioni aggiornati con successo');
+        return reloadedGoal;
       }
       
       console.log('[GoalsClient] Goal aggiornato con successo');
+      return updatedGoal;
     } catch (error) {
       console.error('[GoalsClient] Errore nell\'aggiornamento del goal:', error);
       throw error;
@@ -199,19 +176,22 @@ export const goalsClient = {
   },
 
   // Delete a goal
-  async deleteGoal(id: string) {
+  async deleteGoal(userId: string, id: string): Promise<void> {
     try {
-      console.log('[GoalsClient] deleteGoal chiamato per ID:', id);
-      
-      const { error } = await supabase
-        .from('investment_goals')
-        .delete()
-        .eq('id', id);
+      console.log('[GoalsClient] deleteGoal chiamato per userId:', userId, 'ID:', id);
+      if (!userId || !id) throw new Error('UserID e GoalID sono obbligatori per deleteGoal');
 
-      if (error) {
-        console.error('[GoalsClient] Errore eliminazione goal:', error);
-        throw error;
+      // Verifica che il goal appartenga all'utente prima di eliminarlo
+      const existingGoal = await prisma.investmentGoal.findUnique({ where: { id, userId } });
+      if (!existingGoal) {
+        console.error('[GoalsClient] Goal non trovato o utente non autorizzato per l\'eliminazione.');
+        throw new Error('Goal non trovato o non autorizzato.');
       }
+
+      // L'eliminazione a cascata delle portfolioAllocations dovrebbe essere gestita da Prisma se definita nello schema
+      await prisma.investmentGoal.delete({
+        where: { id },
+      });
       
       console.log('[GoalsClient] Goal eliminato con successo');
     } catch (error) {
@@ -221,24 +201,26 @@ export const goalsClient = {
   },
 
   // Update goal status
-  async updateGoalStatus(id: string, status: 'active' | 'completed' | 'paused') {
+  async updateGoalStatus(userId: string, id: string, status: InvestmentGoalStatus): Promise<InvestmentGoal | null> {
     try {
-      console.log('[GoalsClient] updateGoalStatus chiamato per ID:', id, 'status:', status);
-      
-      const { error } = await supabase
-        .from('investment_goals')
-        .update({ 
-          status,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', id);
+      console.log('[GoalsClient] updateGoalStatus chiamato per userId:', userId, 'ID:', id, 'status:', status);
+      if (!userId || !id) throw new Error('UserID e GoalID sono obbligatori');
 
-      if (error) {
-        console.error('[GoalsClient] Errore aggiornamento status:', error);
-        throw error;
+      const updatedGoal = await prisma.investmentGoal.updateMany({
+        where: { id, userId }, // Assicura che l'utente possa modificare solo i propri goal
+        data: {
+          status,
+          // updatedAt è gestito automaticamente da Prisma
+        },
+      });
+
+      if (updatedGoal.count === 0) {
+         console.log('[GoalsClient] Goal non trovato o utente non autorizzato per aggiornare lo status.');
+         return null;
       }
       
       console.log('[GoalsClient] Status aggiornato con successo');
+      return prisma.investmentGoal.findUnique({ where: {id}, include: {portfolioAllocations: true}});
     } catch (error) {
       console.error('[GoalsClient] Errore nell\'aggiornamento dello status:', error);
       throw error;
@@ -246,24 +228,26 @@ export const goalsClient = {
   },
 
   // Update goal progress
-  async updateGoalProgress(id: string, currentValue: number) {
+  async updateGoalProgress(userId: string, id: string, currentValue: number | Prisma.Decimal): Promise<InvestmentGoal | null> {
     try {
-      console.log('[GoalsClient] updateGoalProgress chiamato per ID:', id, 'valore:', currentValue);
+      console.log('[GoalsClient] updateGoalProgress chiamato per userId:', userId, 'ID:', id, 'valore:', currentValue);
+      if (!userId || !id) throw new Error('UserID e GoalID sono obbligatori');
       
-      const { error } = await supabase
-        .from('investment_goals')
-        .update({ 
-          current_value: currentValue,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', id);
-
-      if (error) {
-        console.error('[GoalsClient] Errore aggiornamento progress:', error);
-        throw error;
+      const updatedGoal = await prisma.investmentGoal.updateMany({
+        where: { id, userId }, // Assicura che l'utente possa modificare solo i propri goal
+        data: {
+          currentValue, // Prisma accetta number o Decimal per i campi Decimal
+          // updatedAt è gestito automaticamente
+        },
+      });
+      
+      if (updatedGoal.count === 0) {
+         console.log('[GoalsClient] Goal non trovato o utente non autorizzato per aggiornare il progresso.');
+         return null;
       }
       
       console.log('[GoalsClient] Progress aggiornato con successo');
+      return prisma.investmentGoal.findUnique({ where: {id}, include: {portfolioAllocations: true}});
     } catch (error) {
       console.error('[GoalsClient] Errore nell\'aggiornamento del progress:', error);
       throw error;
@@ -273,232 +257,117 @@ export const goalsClient = {
 
 // Portfolio Allocations
 export const allocationsClient = {
-  // Update allocation percentages
-  async updateAllocations(goalId: string, allocations: AllocationFormData[]) {
+  // Update allocation percentages for a specific goal
+  async updateAllocations(userId: string, goalId: string, allocationsData: AllocationFormData[]): Promise<PortfolioAllocation[]> {
     try {
-      console.log('[AllocationsClient] updateAllocations chiamato per goal:', goalId);
-      
-      // Delete existing allocations
-      await supabase
-        .from('portfolio_allocations')
-        .delete()
-        .eq('goal_id', goalId);
+      console.log('[AllocationsClient] updateAllocations chiamato per userId:', userId, 'goalId:', goalId);
+      if (!userId || !goalId) throw new Error('UserID e GoalID sono obbligatori');
+
+      // Verify goal ownership
+      const goal = await prisma.investmentGoal.findUnique({ where: { id: goalId, userId } });
+      if (!goal) {
+        throw new Error('Obiettivo non trovato o utente non autorizzato.');
+      }
+
+      // Delete existing allocations for this goal
+      await prisma.portfolioAllocation.deleteMany({
+        where: { goalId: goalId },
+      });
 
       // Insert new allocations
-      const newAllocations = allocations.map(allocation => ({
-        goal_id: goalId,
-        asset_class: allocation.asset_class,
-        target_percentage: allocation.target_percentage,
-        current_percentage: 0
-      }));
-
-      const { error } = await supabase
-        .from('portfolio_allocations')
-        .insert(newAllocations);
-
-      if (error) {
-        console.error('[AllocationsClient] Errore aggiornamento allocations:', error);
-        throw error;
+      if (allocationsData && allocationsData.length > 0) {
+        const newAllocationsInput = allocationsData.map(alloc => ({
+          goalId: goalId,
+          assetClass: alloc.asset_class as AssetClass, // Cast a Prisma enum
+          targetPercentage: alloc.target_percentage, // Prisma gestisce Decimal
+          currentPercentage: 0, // Inizializza currentPercentage
+        }));
+        
+        await prisma.portfolioAllocation.createMany({
+          data: newAllocationsInput,
+        });
       }
       
-      console.log('[AllocationsClient] Allocations aggiornate:', newAllocations.length);
+      const updatedAllocations = await prisma.portfolioAllocation.findMany({
+        where: { goalId: goalId }
+      });
+      console.log('[AllocationsClient] Allocations aggiornate:', updatedAllocations.length);
+      return updatedAllocations;
     } catch (error) {
       console.error('[AllocationsClient] Errore nell\'aggiornamento delle allocations:', error);
       throw error;
     }
   },
 
-  // Update current percentages based on portfolio holdings
-  async updateCurrentPercentages(goalId: string) {
+  // Update current percentages based on portfolio holdings for a specific goal
+  // Questo metodo necessita di userId per recuperare le holdings
+  async updateCurrentPercentages(userId: string, goalId: string): Promise<void> {
     try {
-      console.log('[AllocationsClient] updateCurrentPercentages chiamato per goal:', goalId);
-      
-      const holdings = await holdingsClient.getHoldings();
+      console.log('[AllocationsClient] updateCurrentPercentages chiamato per userId:', userId, 'goalId:', goalId);
+      if (!userId || !goalId) throw new Error('UserID e GoalID sono obbligatori');
+
+      // Recupera le holdings dell'utente utilizzando il client migrato
+      // Nota: financialTransactionsClient.getHoldings() calcola le holdings dinamicamente.
+      // Se hai una tabella PortfolioHolding persistente, dovresti leggerla direttamente.
+      const holdings: Holding[] = await financialTransactionsClient.getHoldings(userId);
+
       if (!holdings || holdings.length === 0) {
-        console.log('[AllocationsClient] Nessun holding trovato');
+        console.log('[AllocationsClient] Nessun holding trovato per l\'utente:', userId);
+        // Potrebbe essere necessario azzerare le percentuali correnti se non ci sono holdings
+        await prisma.portfolioAllocation.updateMany({
+            where: { goalId: goalId },
+            data: { currentPercentage: 0 }
+        });
+        return;
+      }
+      
+      // Usa currentValue dalle holdings calcolate
+      const totalPortfolioValue = holdings.reduce((sum, h) => sum + (h.currentValue || 0), 0);
+
+      if (totalPortfolioValue === 0) {
+        console.log('[AllocationsClient] Valore totale portfolio è 0 per l\'utente:', userId);
+        await prisma.portfolioAllocation.updateMany({
+            where: { goalId: goalId },
+            data: { currentPercentage: 0 }
+        });
         return;
       }
 
-      const totalValue = holdings.reduce((sum: number, h: PortfolioHolding) => sum + (h.current_value || 0), 0);
-      if (totalValue === 0) {
-        console.log('[AllocationsClient] Valore totale portfolio è 0');
-        return;
-      }
-
-      // Group holdings by asset class
-      const assetClassValues: Record<string, number> = {};
-      holdings.forEach((holding: PortfolioHolding) => {
-        const assetClass = mapAssetTypeToClass(holding.asset_type);
-        assetClassValues[assetClass] = (assetClassValues[assetClass] || 0) + (holding.current_value || 0);
+      const allocationsForGoal = await prisma.portfolioAllocation.findMany({
+        where: { goalId: goalId },
       });
 
-      // Update each allocation
-      const { data: allocations } = await supabase
-        .from('portfolio_allocations')
-        .select('*')
-        .eq('goal_id', goalId);
-
-      if (!allocations) return;
-
-      for (const allocation of allocations) {
-        const currentValue = assetClassValues[allocation.asset_class] || 0;
-        const currentPercentage = (currentValue / totalValue) * 100;
-
-        await supabase
-          .from('portfolio_allocations')
-          .update({ 
-            current_percentage: currentPercentage,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', allocation.id);
+      if (!allocationsForGoal || allocationsForGoal.length === 0) {
+        console.log('[AllocationsClient] Nessuna allocazione trovata per il goal:', goalId);
+        return;
       }
       
-      console.log('[AllocationsClient] Percentuali aggiornate per', allocations.length, 'allocations');
+      // Raggruppa il valore delle holdings per AssetClass
+      const assetClassValues: Record<string, number> = {};
+      holdings.forEach((holding) => {
+        // mapAssetTypeToClass non è più necessaria se holding.assetType è già AssetClass
+        // Assumendo che holding.assetType sia compatibile con Prisma.AssetClass
+        const assetClassKey = holding.assetType as string; // holding.assetType è FinancialAssetType
+        const mappedAssetClass = mapFinancialAssetTypeToAssetClass(holding.assetType); // Usa la nuova funzione di mapping
+        assetClassValues[mappedAssetClass] = (assetClassValues[mappedAssetClass] || 0) + (holding.currentValue || 0);
+      });
+
+      for (const allocation of allocationsForGoal) {
+        const valueForThisAssetClass = assetClassValues[allocation.assetClass] || 0;
+        const currentPercentage = totalPortfolioValue > 0 ? (valueForThisAssetClass / totalPortfolioValue) * 100 : 0;
+
+        await prisma.portfolioAllocation.update({
+          where: { id: allocation.id },
+          data: {
+            currentPercentage: currentPercentage,
+            // updatedAt è gestito da Prisma
+          },
+        });
+      }
+      
+      console.log('[AllocationsClient] Percentuali aggiornate per', allocationsForGoal.length, 'allocations del goal:', goalId);
     } catch (error) {
-      console.error('[AllocationsClient] Errore nell\'aggiornamento delle percentuali:', error);
-      throw error;
-    }
-  }
-};
-
-// Financial Transactions
-export const transactionsClient = {
-  // Get all transactions
-  async getTransactions(filters?: {
-    asset_type?: string;
-    transaction_type?: string;
-    start_date?: string;
-    end_date?: string;
-  }) {
-    try {
-      console.log('[TransactionsClient] getTransactions chiamato con filtri:', filters);
-      
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) {
-        console.error('[TransactionsClient] Errore autenticazione:', authError);
-        throw new Error('Utente non autenticato');
-      }
-
-      let query = supabase
-        .from('financial_transactions')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('transaction_date', { ascending: false });
-
-      if (filters?.asset_type) {
-        query = query.eq('asset_type', filters.asset_type);
-      }
-      if (filters?.transaction_type) {
-        query = query.eq('transaction_type', filters.transaction_type);
-      }
-      if (filters?.start_date) {
-        query = query.gte('transaction_date', filters.start_date);
-      }
-      if (filters?.end_date) {
-        query = query.lte('transaction_date', filters.end_date);
-      }
-
-      const { data, error } = await query;
-      if (error) {
-        console.error('[TransactionsClient] Errore query database:', error);
-        throw error;
-      }
-      
-      console.log('[TransactionsClient] Transazioni trovate:', data?.length || 0);
-      return data as FinancialTransaction[];
-    } catch (error) {
-      console.error('[TransactionsClient] Errore nel recupero delle transazioni:', error);
-      throw error;
-    }
-  },
-
-  // Create a new transaction
-  async createTransaction(transaction: TransactionFormData) {
-    try {
-      console.log('[TransactionsClient] createTransaction chiamato con:', transaction);
-      
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) {
-        console.error('[TransactionsClient] Errore autenticazione:', authError);
-        throw new Error('Utente non autenticato');
-      }
-
-      const { data, error } = await supabase
-        .from('financial_transactions')
-        .insert({
-          user_id: user.id,
-          ...transaction,
-          fees: transaction.fees || 0
-        })
-        .select()
-        .single();
-
-      if (error) {
-        console.error('[TransactionsClient] Errore creazione transazione:', error);
-        throw error;
-      }
-
-      console.log('[TransactionsClient] Transazione creata con ID:', data.id);
-
-      // Update portfolio holdings
-      await holdingsClient.updateHoldingsFromTransaction(data as FinancialTransaction);
-
-      return data as FinancialTransaction;
-    } catch (error) {
-      console.error('[TransactionsClient] Errore nella creazione della transazione:', error);
-      throw error;
-    }
-  },
-
-  // Update a transaction
-  async updateTransaction(id: string, updates: Partial<TransactionFormData>) {
-    try {
-      console.log('[TransactionsClient] updateTransaction chiamato per ID:', id);
-      
-      const { error } = await supabase
-        .from('financial_transactions')
-        .update({
-          ...updates,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', id);
-
-      if (error) {
-        console.error('[TransactionsClient] Errore aggiornamento transazione:', error);
-        throw error;
-      }
-
-      console.log('[TransactionsClient] Transazione aggiornata, ricalcolo holdings...');
-      
-      // Recalculate portfolio holdings
-      await holdingsClient.recalculateHoldings();
-    } catch (error) {
-      console.error('[TransactionsClient] Errore nell\'aggiornamento della transazione:', error);
-      throw error;
-    }
-  },
-
-  // Delete a transaction
-  async deleteTransaction(id: string) {
-    try {
-      console.log('[TransactionsClient] deleteTransaction chiamato per ID:', id);
-      
-      const { error } = await supabase
-        .from('financial_transactions')
-        .delete()
-        .eq('id', id);
-
-      if (error) {
-        console.error('[TransactionsClient] Errore eliminazione transazione:', error);
-        throw error;
-      }
-
-      console.log('[TransactionsClient] Transazione eliminata, ricalcolo holdings...');
-      
-      // Recalculate portfolio holdings
-      await holdingsClient.recalculateHoldings();
-    } catch (error) {
-      console.error('[TransactionsClient] Errore nell\'eliminazione della transazione:', error);
+      console.error('[AllocationsClient] Errore nell\'aggiornamento delle percentuali correnti:', error);
       throw error;
     }
   }
@@ -506,252 +375,103 @@ export const transactionsClient = {
 
 // Portfolio Holdings
 export const holdingsClient = {
-  // Get all holdings
-  async getHoldings() {
+  async getHoldings(userId: string): Promise<PortfolioHolding[]> {
+    if (!userId) throw new Error("UserID è obbligatorio");
+    console.log('[HoldingsClient] getHoldings chiamato per userId:', userId);
     try {
-      console.log('[HoldingsClient] getHoldings chiamato');
-      
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) {
-        console.error('[HoldingsClient] Errore autenticazione:', authError);
-        throw new Error('Utente non autenticato');
-      }
-
-      const { data, error } = await supabase
-        .from('portfolio_holdings')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('current_value', { ascending: false });
-
-      if (error) {
-        console.error('[HoldingsClient] Errore query database:', error);
-        throw error;
-      }
-      
-      console.log('[HoldingsClient] Holdings trovati:', data?.length || 0);
-      return data as PortfolioHolding[];
+      const holdings = await prisma.portfolioHolding.findMany({
+        where: { userId },
+        orderBy: { assetName: 'asc' } // o un altro ordinamento sensato, es. per assetName
+      });
+      console.log('[HoldingsClient] Trovate', holdings.length, 'holdings');
+      return holdings;
     } catch (error) {
-      console.error('[HoldingsClient] Errore nel recupero degli holdings:', error);
+      console.error('[HoldingsClient] Errore nel recupero delle holdings:', error);
       throw error;
     }
   },
 
-  // Update holdings from a transaction
-  async updateHoldingsFromTransaction(transaction: FinancialTransaction) {
+  async updatePortfolioPercentages(userId: string): Promise<void> {
     try {
-      console.log('[HoldingsClient] updateHoldingsFromTransaction chiamato per transazione:', transaction.id);
-      
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) {
-        console.error('[HoldingsClient] Errore autenticazione:', authError);
-        throw new Error('Utente non autenticato');
-      }
+      console.log('[HoldingsClient] updatePortfolioPercentages chiamato per userId:', userId);
+      if (!userId) throw new Error("UserID è obbligatorio");
 
-      // Get existing holding
-      const { data: existingHolding } = await supabase
-        .from('portfolio_holdings')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('asset_type', transaction.asset_type)
-        .eq('asset_name', transaction.name)
-        .eq('ticker_symbol', transaction.ticker || '')
-        .single();
+      const holdings = await prisma.portfolioHolding.findMany({ where: { userId } });
 
-      if (transaction.transaction_type === 'buy' || transaction.transaction_type === 'deposit') {
-        if (existingHolding) {
-          // Update existing holding
-          const newQuantity = existingHolding.total_quantity + (transaction.quantity || 0);
-          const newTotalCost = existingHolding.total_cost + transaction.total;
-          const newAverageCost = newTotalCost / newQuantity;
-
-          await supabase
-            .from('portfolio_holdings')
-            .update({
-              total_quantity: newQuantity,
-              average_cost: newAverageCost,
-              total_cost: newTotalCost,
-              last_updated: new Date().toISOString()
-            })
-            .eq('id', existingHolding.id);
-            
-          console.log('[HoldingsClient] Holding esistente aggiornato');
-        } else {
-          // Create new holding
-          await supabase
-            .from('portfolio_holdings')
-            .insert({
-              user_id: user.id,
-              asset_type: transaction.asset_type,
-              asset_name: transaction.name,
-              ticker_symbol: transaction.ticker,
-              total_quantity: transaction.quantity || 0,
-              average_cost: transaction.price || 0,
-              total_cost: transaction.total
-            });
-            
-          console.log('[HoldingsClient] Nuovo holding creato');
-        }
-      } else if (transaction.transaction_type === 'sell' || transaction.transaction_type === 'withdrawal') {
-        if (existingHolding) {
-          const newQuantity = existingHolding.total_quantity - (transaction.quantity || 0);
-          
-          if (newQuantity <= 0) {
-            // Delete holding if quantity is 0 or negative
-            await supabase
-              .from('portfolio_holdings')
-              .delete()
-              .eq('id', existingHolding.id);
-              
-            console.log('[HoldingsClient] Holding eliminato (quantità 0)');
-          } else {
-            // Update holding
-            const newTotalCost = existingHolding.average_cost * newQuantity;
-            
-            await supabase
-              .from('portfolio_holdings')
-              .update({
-                total_quantity: newQuantity,
-                total_cost: newTotalCost,
-                last_updated: new Date().toISOString()
-              })
-              .eq('id', existingHolding.id);
-              
-            console.log('[HoldingsClient] Holding aggiornato dopo vendita');
-          }
-        }
-      }
-
-      // Update portfolio percentages
-      await this.updatePortfolioPercentages();
-    } catch (error) {
-      console.error('[HoldingsClient] Errore nell\'aggiornamento degli holdings:', error);
-      throw error;
-    }
-  },
-
-  // Recalculate all holdings from transactions
-  async recalculateHoldings() {
-    try {
-      console.log('[HoldingsClient] recalculateHoldings chiamato');
-      
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      if (authError || !user) {
-        console.error('[HoldingsClient] Errore autenticazione:', authError);
-        throw new Error('Utente non autenticato');
-      }
-
-      // Delete all existing holdings
-      await supabase
-        .from('portfolio_holdings')
-        .delete()
-        .eq('user_id', user.id);
-
-      // Get all transactions
-      const transactions = await transactionsClient.getTransactions();
-      if (!transactions || transactions.length === 0) {
-        console.log('[HoldingsClient] Nessuna transazione trovata');
+      if (!holdings || holdings.length === 0) {
+        console.log('[HoldingsClient] Nessuna holding trovata per l\'utente, nessuna percentuale da aggiornare.');
         return;
       }
 
-      // Group transactions by asset
-      const assetGroups: Record<string, FinancialTransaction[]> = {};
-      transactions.forEach((tx: FinancialTransaction) => {
-        const key = `${tx.asset_type}-${tx.name}-${tx.ticker || ''}`;
-        if (!assetGroups[key]) assetGroups[key] = [];
-        assetGroups[key].push(tx);
-      });
+      // Calcola il valore totale del portafoglio.
+      // Prisma.Decimal può essere sommato direttamente se i valori non sono null.
+      // Convertiamo in Number per i calcoli per semplicità, assicurandoci di gestire i null.
+      const totalValue = holdings.reduce((sum, h) => {
+        const value = h.currentValue ?? h.totalCost; // Usa currentValue se disponibile, altrimenti totalCost
+        return sum + (value ? Number(value.toString()) : 0);
+      }, 0);
 
-      console.log('[HoldingsClient] Transazioni raggruppate in', Object.keys(assetGroups).length, 'assets');
-
-      // Calculate holdings for each asset
-      for (const [key, txs] of Object.entries(assetGroups)) {
-        let totalQuantity = 0;
-        let totalCost = 0;
-
-        txs.forEach(tx => {
-          if (tx.transaction_type === 'buy' || tx.transaction_type === 'deposit') {
-            totalQuantity += tx.quantity || 0;
-            totalCost += tx.total;
-          } else if (tx.transaction_type === 'sell' || tx.transaction_type === 'withdrawal') {
-            totalQuantity -= tx.quantity || 0;
-            totalCost -= tx.total;
-          }
-        });
-
-        if (totalQuantity > 0) {
-          const firstTx = txs[0];
-          await supabase
-            .from('portfolio_holdings')
-            .insert({
-              user_id: user.id,
-              asset_type: firstTx.asset_type,
-              asset_name: firstTx.name,
-              ticker_symbol: firstTx.ticker,
-              total_quantity: totalQuantity,
-              average_cost: totalCost / totalQuantity,
-              total_cost: totalCost
-            });
-        }
-      }
-
-      console.log('[HoldingsClient] Holdings ricalcolati');
-      await this.updatePortfolioPercentages();
-    } catch (error) {
-      console.error('[HoldingsClient] Errore nel ricalcolo degli holdings:', error);
-      throw error;
-    }
-  },
-
-  // Update portfolio percentages
-  async updatePortfolioPercentages() {
-    try {
-      console.log('[HoldingsClient] updatePortfolioPercentages chiamato');
-      
-      const holdings = await this.getHoldings();
-      const totalValue = holdings.reduce((sum, h) => sum + (h.current_value || h.total_cost), 0);
+      console.log('[HoldingsClient] Valore totale del portafoglio calcolato:', totalValue);
 
       if (totalValue === 0) {
-        console.log('[HoldingsClient] Valore totale portfolio è 0');
+        console.log('[HoldingsClient] Valore totale portfolio è 0. Aggiornamento percentuali a 0.');
+        // Aggiorna tutte le holdings dell'utente a percentageOfPortfolio = 0
+        // È importante usare un loop o `updateMany` se si vuole evitare di aggiornare una per una
+        // in caso di `updateMany` con `data: { percentageOfPortfolio: 0 }`
+        // Tuttavia, Prisma non supporta `updateMany` con un valore calcolato diverso per ogni riga in modo semplice.
+        // Quindi, iteriamo.
+        for (const holding of holdings) {
+          await prisma.portfolioHolding.update({
+            where: { id: holding.id },
+            data: { percentageOfPortfolio: 0 },
+          });
+        }
+        console.log('[HoldingsClient] Percentuali portfolio azzerate per', holdings.length, 'holdings.');
         return;
       }
 
       for (const holding of holdings) {
-        const value = holding.current_value || holding.total_cost;
-        const percentage = (value / totalValue) * 100;
+        const value = holding.currentValue ?? holding.totalCost;
+        const numericValue = value ? Number(value.toString()) : 0;
+        const percentage = (numericValue / totalValue) * 100;
 
-        await supabase
-          .from('portfolio_holdings')
-          .update({
-            percentage_of_portfolio: percentage,
-            last_updated: new Date().toISOString()
-          })
-          .eq('id', holding.id);
+        // Prisma si aspetta un Decimal per percentageOfPortfolio.
+        // La conversione diretta da number a Decimal è gestita da Prisma.
+        await prisma.portfolioHolding.update({
+          where: { id: holding.id },
+          data: {
+            percentageOfPortfolio: new Prisma.Decimal(percentage.toFixed(4)), // Arrotonda per evitare problemi di precisione
+            // lastUpdatedAt è gestito automaticamente da Prisma se definito nello schema
+          },
+        });
       }
-      
-      console.log('[HoldingsClient] Percentuali portfolio aggiornate per', holdings.length, 'holdings');
+      console.log('[HoldingsClient] Percentuali portfolio aggiornate per', holdings.length, 'holdings.');
     } catch (error) {
-      console.error('[HoldingsClient] Errore nell\'aggiornamento delle percentuali:', error);
+      console.error('[HoldingsClient] Errore nell\'aggiornamento delle percentuali del portfolio:', error);
       throw error;
     }
   }
+  // Le funzioni più complesse come updateHoldingsFromTransaction o recalculateHoldings
+  // non sono implementate in questo momento, come da istruzioni.
 };
 
-// Helper function to map asset types to asset classes
-function mapAssetTypeToClass(assetType: string): string {
-  const mapping: Record<string, string> = {
-    'stock': 'stocks',
-    'etf': 'etf',
-    'fund': 'funds',
-    'bond': 'bonds',
-    'crypto': 'crypto',
-    'cash': 'cash',
-    'real_estate': 'real_estate',
-    'commodity': 'commodities',
-    'other': 'other'
+import { FinancialAssetType as PrismaFinancialAssetType } from "@prisma/client";
+
+// Helper function to map FinancialAssetType (da financial-transactions) a AssetClass (per portfolio allocations)
+function mapFinancialAssetTypeToAssetClass(financialAssetType: PrismaFinancialAssetType): AssetClass {
+  const mapping: Record<PrismaFinancialAssetType, AssetClass> = {
+    [PrismaFinancialAssetType.stock]: AssetClass.stocks,
+    [PrismaFinancialAssetType.etf]: AssetClass.etf,
+    [PrismaFinancialAssetType.fund]: AssetClass.funds,
+    [PrismaFinancialAssetType.bond]: AssetClass.bonds,
+    [PrismaFinancialAssetType.crypto]: AssetClass.crypto,
+    [PrismaFinancialAssetType.cash]: AssetClass.cash,
+    [PrismaFinancialAssetType.real_estate]: AssetClass.real_estate,
+    [PrismaFinancialAssetType.commodity]: AssetClass.commodities,
+    [PrismaFinancialAssetType.other]: AssetClass.other,
   };
-  
-  return mapping[assetType] || 'other';
+  return mapping[financialAssetType] || AssetClass.other;
 }
 
-// Export the supabase client for direct use if needed
-export { supabase };
+// Non esportare più supabase, usare prisma direttamente o i client specifici.
+// export { supabase };

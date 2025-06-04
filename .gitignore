@@ -94,3 +94,4 @@ temp/
 # Documentation temp files
 *.md.backup
 *.md.tmp
+/lib/generated/prisma

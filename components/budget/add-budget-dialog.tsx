@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { createBudget } from "@/lib/budget-client"
-import { createClientComponentClient } from "@/lib/supabase-client"
+import { useSession } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -40,7 +40,7 @@ export default function AddBudgetDialog() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
-  const supabase = createClientComponentClient()
+  const { data: session } = useSession()
 
   // Form state
   const [category, setCategory] = useState("")
@@ -58,15 +58,14 @@ export default function AddBudgetDialog() {
     setError(null)
 
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
+      if (!session?.user?.id) {
         setError("Utente non autenticato")
         setLoading(false)
         return
       }
 
       await createBudget({
-        user_id: user.id,
+        user_id: session.user.id,
         category,
         amount: parseFloat(amount),
         period,
