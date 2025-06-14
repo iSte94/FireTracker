@@ -1,9 +1,8 @@
 "use client"
 
-import { useEffect } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { createClientComponentClient } from "@/lib/supabase-client"
+import { useSession, signOut } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { ModeToggle } from "@/components/mode-toggle"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
@@ -30,41 +29,17 @@ import {
 import { cn } from "@/lib/utils"
 import { useIsFireBudget, useIsFireOnly } from "@/components/providers/view-mode-provider"
 import { FireQuickStats } from "@/components/fire/fire-quick-stats"
-import { useAuthSync } from "@/hooks/use-auth-sync"
 
 export default function Header() {
   const pathname = usePathname()
-  const { user, loading, initialized, refreshSession } = useAuthSync()
-  const supabase = createClientComponentClient()
+  const { data: session, status } = useSession()
+  const user = session?.user
+  const loading = status === "loading"
   const isFireBudget = useIsFireBudget()
   const isFireOnly = useIsFireOnly()
 
-  // Aggiungi un effetto per forzare il refresh se necessario
-  useEffect(() => {
-    // Se l'hook è inizializzato ma non c'è utente, e ci sono cookie di autenticazione,
-    // prova a fare un refresh manuale
-    if (initialized && !user && !loading && typeof window !== 'undefined') {
-      const hasAuthCookie = document.cookie.includes('sb-') && document.cookie.includes('auth-token')
-      
-      if (hasAuthCookie) {
-        // console.log('Header: Cookie presenti ma nessun utente, tentativo di refresh...') // Removed
-        refreshSession().then((success) => {
-          if (!success) {
-            // console.log('Header: Refresh fallito, sessione non ripristinata.') // Removed
-            // setTimeout(() => {
-            //   if (!user && document.cookie.includes('sb-') && document.cookie.includes('auth-token')) {
-            //     console.log('Header: Forzando reload della pagina...')
-            //     window.location.reload()
-            //   }
-            // }, 3000) // Reload logic removed/commented
-          }
-        })
-      }
-    }
-  }, [initialized, user, loading, refreshSession])
-
   const handleSignOut = async () => {
-    await supabase.auth.signOut()
+    await signOut()
   }
 
   // Routes per modalità normale e FIRE & Budget
@@ -74,7 +49,7 @@ export default function Header() {
       label: "Home",
       icon: Home,
       active: pathname === "/",
-      visible: true,
+      visible: !user, // Visibile solo quando l'utente NON è loggato
     },
     {
       href: "/dashboard",
@@ -115,6 +90,13 @@ export default function Header() {
 
   // Routes ottimizzate per modalità Solo FIRE
   const fireOnlyRoutes = [
+    {
+      href: "/",
+      label: "Home",
+      icon: Home,
+      active: pathname === "/",
+      visible: !user, // Visibile solo quando l'utente NON è loggato
+    },
     {
       href: "/dashboard",
       label: "Dashboard",
@@ -196,7 +178,7 @@ export default function Header() {
                   <DropdownMenuTrigger asChild>
                     <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                       <Avatar className="h-8 w-8">
-                        <AvatarImage src="/placeholder.svg?height=32&width=32" alt={user.email} />
+                        <AvatarImage src="/placeholder.svg?height=32&width=32" alt={user.email || "User"} />
                         <AvatarFallback>
                           <User className="h-4 w-4" />
                         </AvatarFallback>
@@ -206,7 +188,7 @@ export default function Header() {
                   <DropdownMenuContent align="end">
                     <div className="flex items-center justify-start gap-2 p-2">
                       <div className="flex flex-col space-y-1 leading-none">
-                        <p className="font-medium">{user.user_metadata?.full_name || "Utente"}</p>
+                        <p className="font-medium">{user.name || "Utente"}</p>
                         <p className="w-[200px] truncate text-sm text-muted-foreground">{user.email}</p>
                       </div>
                     </div>

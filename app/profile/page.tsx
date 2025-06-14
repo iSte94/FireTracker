@@ -4,8 +4,7 @@ import type React from "react"
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { createClientComponentClient } from "@/lib/supabase-client"
-import { updateProfile } from "@/lib/db-client"
+import { useSession, signOut } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -17,42 +16,45 @@ import { AlertCircle, Loader2, Eye, Calculator } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 
 export default function ProfilePage() {
-  const [user, setUser] = useState<any>(null)
   const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [currentPassword, setCurrentPassword] = useState("")
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [changingPassword, setChangingPassword] = useState(false)
   const router = useRouter()
-  const supabase = createClientComponentClient()
+  const { data: session, status } = useSession()
 
   useEffect(() => {
-    const fetchUserAndProfile = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      if (!user) {
+    const fetchProfile = async () => {
+      if (status === "loading") return
+      
+      if (!session?.user) {
         router.push("/login")
         return
       }
 
-      setUser(user)
-
-      const { data: profile, error } = await supabase.from("profiles").select("*").eq("id", user.id).single()
-
-      if (error) {
+      try {
+        const response = await fetch('/api/profile')
+        if (response.ok) {
+          const profileData = await response.json()
+          setProfile(profileData)
+        } else {
+          setError("Errore nel caricamento del profilo")
+        }
+      } catch (error) {
         console.error("Error fetching profile:", error)
         setError("Errore nel caricamento del profilo")
-      } else {
-        setProfile(profile)
       }
 
       setLoading(false)
     }
 
-    fetchUserAndProfile()
-  }, [router, supabase])
+    fetchProfile()
+  }, [router, session, status])
 
   const handleProfileUpdate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -60,22 +62,28 @@ export default function ProfilePage() {
     setError(null)
     setSuccess(null)
 
-    if (!user) return
+    if (!session?.user) return
 
     try {
-      const updatedProfile = await updateProfile(user.id, {
-        full_name: profile.full_name,
-        monthly_expenses: profile.monthly_expenses,
-        annual_expenses: profile.annual_expenses,
-        current_age: profile.current_age,
-        retirement_age: profile.retirement_age,
-        swr_rate: profile.swr_rate,
-        expected_return: profile.expected_return,
-        inflation_rate: profile.inflation_rate,
-        view_mode: profile.view_mode,
+      const response = await fetch('/api/profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fullName: profile.fullName,
+          monthlyExpenses: profile.monthlyExpenses,
+          annualExpenses: profile.annualExpenses,
+          currentAge: profile.currentAge,
+          retirementAge: profile.retirementAge,
+          swrRate: profile.swrRate,
+          expectedReturn: profile.expectedReturn,
+          inflationRate: profile.inflationRate,
+          viewMode: profile.viewMode,
+        }),
       })
 
-      if (updatedProfile) {
+      if (response.ok) {
         setSuccess("Profilo aggiornato con successo")
       } else {
         setError("Errore nell'aggiornamento del profilo")
@@ -89,9 +97,55 @@ export default function ProfilePage() {
   }
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut()
-    router.push("/")
-    router.refresh()
+    await signOut({ callbackUrl: "/" })
+  }
+
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setChangingPassword(true)
+    setError(null)
+    setSuccess(null)
+
+    if (newPassword !== confirmPassword) {
+      setError("Le password non corrispondono")
+      setChangingPassword(false)
+      return
+    }
+
+    if (newPassword.length < 6) {
+      setError("La password deve essere di almeno 6 caratteri")
+      setChangingPassword(false)
+      return
+    }
+
+    try {
+      const response = await fetch('/api/change-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          currentPassword,
+          newPassword,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (response.ok) {
+        setSuccess("Password cambiata con successo")
+        setCurrentPassword("")
+        setNewPassword("")
+        setConfirmPassword("")
+      } else {
+        setError(result.error || "Errore nel cambio password")
+      }
+    } catch (error) {
+      console.error("Error changing password:", error)
+      setError("Errore nel cambio password")
+    }
+
+    setChangingPassword(false)
   }
 
   if (loading) {
@@ -135,15 +189,15 @@ export default function ProfilePage() {
                 )}
                 <div className="space-y-2">
                   <Label htmlFor="email">Email</Label>
-                  <Input id="email" type="email" value={user?.email} disabled />
+                  <Input id="email" type="email" value={session?.user?.email || ""} disabled />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="fullName">Nome completo</Label>
                   <Input
                     id="fullName"
                     type="text"
-                    value={profile?.full_name || ""}
-                    onChange={(e) => setProfile({ ...profile, full_name: e.target.value })}
+                    value={profile?.fullName || ""}
+                    onChange={(e) => setProfile({ ...profile, fullName: e.target.value })}
                   />
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
@@ -152,8 +206,8 @@ export default function ProfilePage() {
                     <Input
                       id="currentAge"
                       type="number"
-                      value={profile?.current_age || 30}
-                      onChange={(e) => setProfile({ ...profile, current_age: Number(e.target.value) })}
+                      value={profile?.currentAge || 30}
+                      onChange={(e) => setProfile({ ...profile, currentAge: Number(e.target.value) })}
                     />
                   </div>
                   <div className="space-y-2">
@@ -161,8 +215,8 @@ export default function ProfilePage() {
                     <Input
                       id="retirementAge"
                       type="number"
-                      value={profile?.retirement_age || 65}
-                      onChange={(e) => setProfile({ ...profile, retirement_age: Number(e.target.value) })}
+                      value={profile?.retirementAge || 65}
+                      onChange={(e) => setProfile({ ...profile, retirementAge: Number(e.target.value) })}
                     />
                   </div>
                 </div>
@@ -201,13 +255,13 @@ export default function ProfilePage() {
                     <Input
                       id="monthlyExpenses"
                       type="number"
-                      value={profile?.monthly_expenses || 2350}
+                      value={profile?.monthlyExpenses || 2350}
                       onChange={(e) => {
                         const monthly = Number(e.target.value)
                         setProfile({
                           ...profile,
-                          monthly_expenses: monthly,
-                          annual_expenses: monthly * 12,
+                          monthlyExpenses: monthly,
+                          annualExpenses: monthly * 12,
                         })
                       }}
                     />
@@ -217,13 +271,13 @@ export default function ProfilePage() {
                     <Input
                       id="annualExpenses"
                       type="number"
-                      value={profile?.annual_expenses || 28200}
+                      value={profile?.annualExpenses || 28200}
                       onChange={(e) => {
                         const annual = Number(e.target.value)
                         setProfile({
                           ...profile,
-                          annual_expenses: annual,
-                          monthly_expenses: Math.round(annual / 12),
+                          annualExpenses: annual,
+                          monthlyExpenses: Math.round(annual / 12),
                         })
                       }}
                     />
@@ -232,43 +286,43 @@ export default function ProfilePage() {
                 <div className="space-y-2">
                   <div className="flex justify-between">
                     <Label htmlFor="swrRate">Safe Withdrawal Rate (%)</Label>
-                    <span className="text-sm">{profile?.swr_rate || 4}%</span>
+                    <span className="text-sm">{profile?.swrRate || 4}%</span>
                   </div>
                   <Slider
                     id="swrRate"
                     min={2}
                     max={6}
                     step={0.1}
-                    value={[profile?.swr_rate || 4]}
-                    onValueChange={(value) => setProfile({ ...profile, swr_rate: value[0] })}
+                    value={[profile?.swrRate || 4]}
+                    onValueChange={(value) => setProfile({ ...profile, swrRate: value[0] })}
                   />
                 </div>
                 <div className="space-y-2">
                   <div className="flex justify-between">
                     <Label htmlFor="expectedReturn">Rendimento atteso (%)</Label>
-                    <span className="text-sm">{profile?.expected_return || 7}%</span>
+                    <span className="text-sm">{profile?.expectedReturn || 7}%</span>
                   </div>
                   <Slider
                     id="expectedReturn"
                     min={1}
                     max={12}
                     step={0.5}
-                    value={[profile?.expected_return || 7]}
-                    onValueChange={(value) => setProfile({ ...profile, expected_return: value[0] })}
+                    value={[profile?.expectedReturn || 7]}
+                    onValueChange={(value) => setProfile({ ...profile, expectedReturn: value[0] })}
                   />
                 </div>
                 <div className="space-y-2">
                   <div className="flex justify-between">
                     <Label htmlFor="inflationRate">Inflazione (%)</Label>
-                    <span className="text-sm">{profile?.inflation_rate || 2}%</span>
+                    <span className="text-sm">{profile?.inflationRate || 2}%</span>
                   </div>
                   <Slider
                     id="inflationRate"
                     min={0}
                     max={5}
                     step={0.1}
-                    value={[profile?.inflation_rate || 2]}
-                    onValueChange={(value) => setProfile({ ...profile, inflation_rate: value[0] })}
+                    value={[profile?.inflationRate || 2]}
+                    onValueChange={(value) => setProfile({ ...profile, inflationRate: value[0] })}
                   />
                 </div>
               </CardContent>
@@ -295,18 +349,18 @@ export default function ProfilePage() {
                       Modalità di visualizzazione
                     </Label>
                     <p className="text-sm text-muted-foreground">
-                      {profile?.view_mode === 'fire_only'
+                      {profile?.viewMode === 'fire_only'
                         ? "Attualmente stai visualizzando solo le funzionalità FIRE"
                         : "Attualmente stai visualizzando sia FIRE che Budget"}
                     </p>
                   </div>
                   <Switch
                     id="view-mode"
-                    checked={profile?.view_mode === 'fire_budget'}
+                    checked={profile?.viewMode === 'fire_budget'}
                     onCheckedChange={(checked) => {
                       setProfile({
                         ...profile,
-                        view_mode: checked ? 'fire_budget' : 'fire_only'
+                        viewMode: checked ? 'fire_budget' : 'fire_only'
                       })
                     }}
                   />
@@ -357,20 +411,55 @@ export default function ProfilePage() {
               <div className="space-y-2">
                 <Label>Email</Label>
                 <div className="flex items-center gap-2">
-                  <Input value={user?.email} disabled />
+                  <Input value={session?.user?.email || ""} disabled />
                   <Button variant="outline" size="sm" disabled>
                     Cambia email
                   </Button>
                 </div>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-4">
                 <Label>Password</Label>
-                <div className="flex items-center gap-2">
-                  <Input type="password" value="••••••••" disabled />
-                  <Button variant="outline" size="sm" disabled>
-                    Cambia password
+                <form onSubmit={handlePasswordChange} className="space-y-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="currentPassword">Password attuale</Label>
+                    <Input
+                      id="currentPassword"
+                      type="password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="newPassword">Nuova password</Label>
+                    <Input
+                      id="newPassword"
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="confirmPassword">Conferma nuova password</Label>
+                    <Input
+                      id="confirmPassword"
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <Button 
+                    type="submit" 
+                    variant="outline" 
+                    size="sm" 
+                    disabled={changingPassword}
+                    className="w-full"
+                  >
+                    {changingPassword ? "Cambiando..." : "Cambia password"}
                   </Button>
-                </div>
+                </form>
               </div>
             </CardContent>
             <CardFooter className="flex justify-between">

@@ -2,15 +2,15 @@
 
 import { useEffect, useState } from "react"
 import { BudgetAlert, getBudgetAlerts, markAlertAsRead } from "@/lib/budget-client"
-import { createClientComponentClient } from "@/lib/supabase-client"
+import { useSession } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { 
-  AlertTriangle, 
-  TrendingUp, 
-  Calendar, 
+import {
+  AlertTriangle,
+  TrendingUp,
+  Calendar,
   CheckCircle2,
   Bell,
   BellOff
@@ -22,18 +22,19 @@ export default function BudgetAlerts() {
   const [alerts, setAlerts] = useState<BudgetAlert[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'unread'>('unread')
-  const supabase = createClientComponentClient()
+  const { data: session } = useSession()
 
   useEffect(() => {
-    loadAlerts()
-  }, [])
+    if (session?.user?.id) {
+      loadAlerts()
+    }
+  }, [session?.user?.id])
 
   const loadAlerts = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!session?.user?.id) return
 
-      const alertList = await getBudgetAlerts(user.id)
+      const alertList = await getBudgetAlerts(session.user.id)
       setAlerts(alertList)
     } catch (error) {
       console.error("Error loading alerts:", error)

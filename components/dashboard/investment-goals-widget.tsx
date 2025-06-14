@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSession } from 'next-auth/react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { GoalProgressMini } from "@/components/shared/goal-progress-mini";
 import { AllocationDeviationAlert } from "@/components/shared/allocation-deviation-alert";
@@ -8,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { ArrowRight, Target } from "lucide-react";
 import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
-import { createClientComponentClient } from '@/lib/supabase-client';
 
 interface GoalProgress {
   id: string;
@@ -31,36 +31,20 @@ export function InvestmentGoalsWidget() {
     };
   } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-  const supabase = createClientComponentClient();
-
-  // Verifica autenticazione
-  useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        setIsAuthenticated(!!user);
-      } catch (error) {
-        console.log('Widget investment-goals: Errore verifica autenticazione:', error);
-        setIsAuthenticated(false);
-      }
-    };
-
-    checkAuth();
-  }, [supabase]);
+  const { data: session, status } = useSession();
 
   useEffect(() => {
     const fetchGoalsProgress = async () => {
-      // Blocca completamente se non autenticato
-      if (isAuthenticated === false) {
-        console.log('Widget investment-goals: Utente non autenticato, blocco chiamata API');
-        setIsLoading(false);
+      // Aspetta che il controllo di sessione sia completato
+      if (status === 'loading') {
         return;
       }
 
-      // Non procedere se lo stato di autenticazione non è ancora determinato
-      if (isAuthenticated === null) {
-        return; // Mantieni loading finché non si determina lo stato
+      // Blocca completamente se non autenticato
+      if (status === 'unauthenticated') {
+        console.log('Widget investment-goals: Utente non autenticato, blocco chiamata API');
+        setIsLoading(false);
+        return;
       }
 
       try {
@@ -70,7 +54,6 @@ export function InvestmentGoalsWidget() {
           setGoalsData(data);
         } else if (response.status === 401) {
           console.log('Widget investment-goals: API risposta 401, utente non autenticato');
-          setIsAuthenticated(false);
         }
       } catch (error) {
         console.error('Widget investment-goals: Errore caricamento obiettivi:', error);
@@ -80,7 +63,7 @@ export function InvestmentGoalsWidget() {
     };
 
     fetchGoalsProgress();
-  }, [isAuthenticated]);
+  }, [status, session]);
 
   // Trova deviazioni significative per l'alert
   const significantDeviations = goalsData?.goalsProgress
@@ -89,7 +72,7 @@ export function InvestmentGoalsWidget() {
     .filter(d => d.deviation > 5)
     .slice(0, 3) || [];
 
-  if (isLoading) {
+  if (isLoading || status === 'loading') {
     return (
       <Card>
         <CardHeader>

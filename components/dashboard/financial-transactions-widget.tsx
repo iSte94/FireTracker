@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { createClientComponentClient } from "@/lib/supabase-client"
+import { useSession } from "next-auth/react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
@@ -85,7 +85,7 @@ export function FinancialTransactionsWidget() {
   const [transactions, setTransactions] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const supabase = createClientComponentClient()
+  const { data: session, status } = useSession()
   const router = useRouter()
 
   // Funzione per formattare la data
@@ -110,29 +110,43 @@ export function FinancialTransactionsWidget() {
 
   useEffect(() => {
     const fetchTransactions = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser()
+      // Aspetta che il controllo di sessione sia completato
+      if (status === 'loading') {
+        return
+      }
 
-        if (!user) {
+      try {
+        if (status === 'unauthenticated') {
           setTransactions(demoFinancialTransactions)
           setLoading(false)
           return
         }
 
-        // Recupera le transazioni finanziarie
-        const { data, error } = await supabase
-          .from("financial_transactions")
-          .select("*")
-          .eq("user_id", user.id)
-          .order("date", { ascending: false })
-          .limit(5)
+        // Recupera le transazioni finanziarie tramite API
+        const response = await fetch('/api/portfolio/financial-transactions?limit=5')
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`)
+        }
 
-        if (error) throw error
+        const result = await response.json()
+        const data = result.transactions || []
 
-        if (!data || data.length === 0) {
+        if (data.length === 0) {
           setTransactions(demoFinancialTransactions)
         } else {
-          setTransactions(data)
+          // Mappa i dati per compatibilità con il formato esistente
+          const mappedData = data.map((t: any) => ({
+            id: t.id,
+            asset_name: t.asset_name,
+            transaction_type: t.transaction_type,
+            amount: t.transaction_type === 'buy' ? -Math.abs(t.total_amount) : t.total_amount,
+            quantity: t.quantity || 0,
+            price_per_unit: t.price_per_unit || 0,
+            date: t.transaction_date,
+            notes: t.notes || ''
+          }))
+          setTransactions(mappedData)
         }
       } catch (error) {
         console.error("Error fetching financial transactions:", error)
@@ -144,9 +158,9 @@ export function FinancialTransactionsWidget() {
     }
 
     fetchTransactions()
-  }, [supabase])
+  }, [status, session])
 
-  if (loading) {
+  if (loading || status === 'loading') {
     return (
       <Card>
         <CardHeader>

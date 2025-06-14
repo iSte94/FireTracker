@@ -1,16 +1,7 @@
-import { createBrowserClient } from '@supabase/ssr'
-import type { Database } from '@/types/supabase'
+// DEPRECATO: Questo file è un stub temporaneo per evitare errori di import
+// Tutti i componenti dovranno essere migrati a Next-Auth + Prisma
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-// Client-side helper per componenti client
+// Funzione stub per compatibilità temporanea
 export function createClientComponentClient() {
-  return createBrowserClient<Database>(
-    supabaseUrl,
-    supabaseAnonKey
-  )
+  throw new Error('Supabase client deprecato. Usare Next-Auth e Prisma invece.')
 }
-
-// Export legacy per compatibilità (deprecato)
-export const supabase = createClientComponentClient()

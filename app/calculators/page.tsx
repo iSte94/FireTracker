@@ -2,14 +2,18 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import FireCalculator from "@/components/calculators/fire-calculator"
-import CoastFireCalculator from "@/components/calculators/coast-fire-calculator"
-import BaristaFireCalculator from "@/components/calculators/barista-fire-calculator"
-import ExpenseSimulator from "@/components/calculators/expense-simulator"
-import FutureExpenseImpactCalculator from "@/components/calculators/future-expense-impact"
-import SwrVariationsCalculator from "@/components/calculators/swr-variations"
-import FireTimelineComparison from "@/components/calculators/fire-timeline-comparison"
 import { useIsFireOnly } from "@/components/providers/view-mode-provider"
+
+// Lazy imports per i calcolatori
+import {
+  LazyFireCalculator,
+  LazyBaristaFireCalculator,
+  LazyCoastFireCalculator,
+  LazyExpenseSimulator,
+  LazyFireTimelineComparison,
+  LazyFutureExpenseImpact,
+  LazySwrVariations,
+} from "@/components/calculators/lazy-calculators"
 
 export default function CalculatorsPage() {
   const isFireOnly = useIsFireOnly()
@@ -44,7 +48,7 @@ export default function CalculatorsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <FireCalculator />
+                <LazyFireCalculator />
               </CardContent>
             </Card>
           </TabsContent>
@@ -58,7 +62,7 @@ export default function CalculatorsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <CoastFireCalculator />
+                <LazyCoastFireCalculator />
               </CardContent>
             </Card>
           </TabsContent>
@@ -72,7 +76,7 @@ export default function CalculatorsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <BaristaFireCalculator />
+                <LazyBaristaFireCalculator />
               </CardContent>
             </Card>
           </TabsContent>
@@ -85,7 +89,7 @@ export default function CalculatorsPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <ExpenseSimulator />
+                <LazyExpenseSimulator />
               </CardContent>
             </Card>
           </TabsContent>
@@ -101,7 +105,7 @@ export default function CalculatorsPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <FutureExpenseImpactCalculator />
+                    <LazyFutureExpenseImpact />
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -115,7 +119,7 @@ export default function CalculatorsPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <SwrVariationsCalculator />
+                    <LazySwrVariations />
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -129,7 +133,7 @@ export default function CalculatorsPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <FireTimelineComparison />
+                    <LazyFireTimelineComparison />
                   </CardContent>
                 </Card>
               </TabsContent>

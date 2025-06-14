@@ -1,0 +1,382 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Enums
+
+enum GoalType {
+  FIRE
+  COAST_FIRE
+  BARISTA_FIRE
+  CUSTOM
+}
+
+enum GoalStatus {
+  IN_PROGRESS
+  COMPLETED
+  ABANDONED
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+enum InvestmentGoalType {
+  monthly_investment
+  portfolio_allocation
+  annual_return
+  target_portfolio_value
+  retirement_income
+  emergency_fund
+  custom
+}
+
+enum InvestmentGoalStatus {
+  active
+  completed
+  paused
+}
+
+enum AssetClass {
+  stocks
+  bonds
+  crypto
+  etf
+  funds
+  cash
+  real_estate
+  commodities
+  other
+}
+
+enum FinancialTransactionType {
+  buy
+  sell
+  dividend
+  interest
+  deposit
+  withdrawal
+  fee
+  tax
+}
+
+// Nota: FinancialAssetType potrebbe essere identico ad AssetClass.
+// Per ora li tengo separati se ci fossero divergenze future, ma potrebbero essere consolidati.
+enum FinancialAssetType {
+  stock
+  etf
+  fund
+  bond
+  crypto
+  cash
+  real_estate
+  commodity
+  other
+}
+
+enum BudgetPeriod {
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum BudgetStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+enum BudgetAlertType {
+  THRESHOLD_REACHED
+  BUDGET_EXCEEDED
+  PERIOD_ENDING
+}
+
+// NextAuth Models
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  accounts      Account[]
+  sessions      Session[]
+  password      String?      // Aggiunto per l'autenticazione con credenziali
+  profile       Profile?     // Relazione 1-a-1 con Profile
+
+  // Relazioni con altri modelli dell'applicazione
+  netWorthEntries       NetWorth[]
+  expenses              Expense[]
+  goals                 Goal[]
+  transactions          Transaction[]
+  investmentGoals       InvestmentGoal[]
+  financialTransactions FinancialTransaction[]
+  portfolioHoldings     PortfolioHolding[]
+  budgets               Budget[]
+  budgetAlerts          BudgetAlert[]
+
+  @@map("users") // Map al nome plurale se NextAuth lo usa, o rimuovere se usa 'User'
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// Application Models
+
+model Profile {
+  // id è la FK a User.id ed è anche la PK di Profile
+  id                 String     @id
+  user               User       @relation(fields: [id], references: [id], onDelete: Cascade)
+  createdAt          DateTime   @default(now()) @map("created_at")
+  updatedAt          DateTime   @updatedAt @map("updated_at")
+  email              String     // Dalla tabella SQL, NOT NULL
+  fullName           String?    @map("full_name")
+  avatarUrl          String?    @map("avatar_url")
+  monthlyExpenses    Decimal?   @map("monthly_expenses")
+  annualExpenses     Decimal?   @map("annual_expenses")
+  currentAge         Int?       @map("current_age")
+  retirementAge      Int?       @map("retirement_age")
+  swrRate            Decimal?   @map("swr_rate")        // Es. 3.5 (per 3.5%)
+  expectedReturn     Decimal?   @map("expected_return") // Es. 7.0 (per 7.0%)
+  inflationRate      Decimal?   @map("inflation_rate")  // Es. 2.0 (per 2.0%)
+  viewMode           String?    @default("fire_budget") @map("view_mode") // fire_only | fire_budget
+
+  @@map("profiles")
+}
+
+model NetWorth {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now()) @map("created_at")
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date      DateTime // SQL type DATE
+  amount    Decimal
+  notes     String?
+
+  @@index([userId])
+  @@map("net_worth")
+}
+
+model Expense {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now()) @map("created_at")
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category  String
+  amount    Decimal
+  date      DateTime // SQL type DATE
+  notes     String?
+
+  @@index([userId])
+  @@map("expenses")
+}
+
+model Goal {
+  id             String     @id @default(uuid())
+  createdAt      DateTime   @default(now()) @map("created_at")
+  userId         String     @map("user_id")
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String
+  type           GoalType
+  targetAmount   Decimal    @map("target_amount")
+  currentAmount  Decimal    @map("current_amount")
+  targetDate     DateTime?  @map("target_date") // SQL type DATE
+  notes          String?
+  status         GoalStatus
+
+  budgets        Budget[] // Relazione inversa se un budget può essere collegato a un goal
+
+  @@index([userId])
+  @@map("goals")
+}
+
+model Transaction {
+  id          String          @id @default(uuid())
+  createdAt   DateTime        @default(now()) @map("created_at")
+  userId      String          @map("user_id")
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date        DateTime        // SQL type DATE
+  description String
+  amount      Decimal
+  category    String
+  type        TransactionType
+  notes       String?
+
+  @@index([userId])
+  @@map("transactions")
+}
+
+model InvestmentGoal {
+  id            String               @id @default(uuid())
+  userId        String               @map("user_id")
+  user          User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title         String
+  description   String?
+  goalType      InvestmentGoalType   @map("goal_type")
+  targetValue   Decimal              @map("target_value")
+  currentValue  Decimal              @default(0) @map("current_value")
+  targetDate    DateTime?            @map("target_date") // SQL type DATE
+  status        InvestmentGoalStatus @default(active)
+  createdAt     DateTime             @default(now()) @map("created_at")
+  updatedAt     DateTime             @updatedAt @map("updated_at")
+
+  portfolioAllocations PortfolioAllocation[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([goalType])
+  @@map("investment_goals")
+}
+
+model PortfolioAllocation {
+  id                String   @id @default(uuid())
+  goalId            String   @map("goal_id")
+  investmentGoal    InvestmentGoal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  assetClass        AssetClass @map("asset_class")
+  targetPercentage  Decimal  @map("target_percentage")
+  currentPercentage Decimal? @default(0) @map("current_percentage")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@unique([goalId, assetClass])
+  @@index([goalId])
+  @@map("portfolio_allocations")
+}
+
+model FinancialTransaction {
+  id               String                   @id @default(uuid())
+  userId           String                   @map("user_id")
+  user             User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactionType  FinancialTransactionType @map("transaction_type")
+  assetType        FinancialAssetType       @map("asset_type")
+  assetName        String                   @map("asset_name")
+  tickerSymbol     String?                  @map("ticker_symbol") // Corrisponde a 'ticker' in uno degli schemi SQL
+  quantity         Decimal?                 // quantity DECIMAL(20, 8) o NUMERIC(12,6)
+  pricePerUnit     Decimal?                 @map("price_per_unit") // price DECIMAL(20, 8) o NUMERIC(12,6)
+  totalAmount      Decimal                  @map("total_amount")   // total DECIMAL(20,8) o NUMERIC(12,2)
+  transactionDate  DateTime                 @map("transaction_date") // SQL type DATE
+  currency         String                   @default("EUR")
+  fees             Decimal                  @default(0)
+  notes            String?
+  createdAt        DateTime                 @default(now()) @map("created_at")
+  updatedAt        DateTime                 @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([transactionDate(sort: Desc)])
+  @@index([assetType, tickerSymbol])
+  @@index([transactionType])
+  @@map("financial_transactions")
+}
+
+model PortfolioHolding {
+  id                      String   @id @default(uuid())
+  userId                  String   @map("user_id")
+  user                    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assetType               String   @map("asset_type") // Potrebbe diventare FinancialAssetType se i valori sono gli stessi
+  assetName               String   @map("asset_name")
+  tickerSymbol            String?  @map("ticker_symbol")
+  totalQuantity           Decimal  @map("total_quantity")
+  averageCost             Decimal  @map("average_cost")
+  totalCost               Decimal  @map("total_cost")
+  currentPrice            Decimal? @map("current_price")
+  currentValue            Decimal? @map("current_value")
+  unrealizedGainLoss      Decimal? @map("unrealized_gain_loss")
+  percentageOfPortfolio   Decimal? @map("percentage_of_portfolio")
+  lastUpdatedAt           DateTime @default(now()) @map("last_updated") // O @updatedAt se si aggiorna sempre
+
+  @@unique([userId, assetType, assetName, tickerSymbol])
+  @@index([userId])
+  @@index([assetType, tickerSymbol])
+  @@map("portfolio_holdings")
+}
+
+model Budget {
+  id             String        @id @default(uuid())
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+  userId         String        @map("user_id")
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category       String
+  amount         Decimal
+  period         BudgetPeriod
+  startDate      DateTime      @map("start_date") // SQL type DATE
+  endDate        DateTime?     @map("end_date")   // SQL type DATE
+  isRecurring    Boolean       @default(true) @map("is_recurring")
+  notes          String?
+  alertThreshold Decimal?      @default(80) @map("alert_threshold")
+  sharedWith     String        @default("[]") @map("shared_with") // Mappato a TEXT in SQLite (JSON array), gestito come stringa JSON
+  goalId         String?       @map("goal_id")
+  goal           Goal?         @relation(fields: [goalId], references: [id], onDelete:SetNull) // onDelete:SetNull se il budget può esistere senza goal
+  status         BudgetStatus? @default(ACTIVE)
+
+  alerts BudgetAlert[]
+
+  @@index([userId])
+  @@index([category])
+  @@index([period])
+  @@index([status])
+  @@map("budgets")
+}
+
+model BudgetAlert {
+  id              String          @id @default(uuid())
+  createdAt       DateTime        @default(now()) @map("created_at")
+  budgetId        String          @map("budget_id")
+  budget          Budget          @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  userId          String          @map("user_id") // L'utente che riceve l'alert
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  alertType       BudgetAlertType @map("alert_type")
+  percentageUsed  Decimal?        @map("percentage_used")
+  message         String?
+  isRead          Boolean         @default(false) @map("is_read")
+
+  @@index([userId])
+  @@index([budgetId])
+  @@map("budget_alerts")
+}

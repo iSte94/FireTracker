@@ -22,7 +22,12 @@
     "debug:schema": "npm run schema:verify && npm run schema:refresh",
     "fix:financial-transactions": "npm run schema:apply && npm run schema:refresh",
     "help:schema": "echo 'Script disponibili:' && echo '  npm run schema:check - Verifica semplificata (senza dipendenze)' && echo '  npm run schema:check:full - Verifica completa (richiede dotenv)' && echo '  npm run schema:apply - Applica schema normale' && echo '  npm run schema:apply:safe - Applica schema sicuro' && echo '  npm run schema:manual - Mostra guida manuale'",
-    "test:schema-setup": "node test-schema-setup.js"
+    "test:schema-setup": "node test-schema-setup.js",
+    "test:performance": "node test-performance-optimizations.js",
+    "test:performance:api": "powershell -ExecutionPolicy Bypass -File test-api-performance.ps1",
+    "build:analyze": "ANALYZE=true npm run build",
+    "dev:profile": "NODE_OPTIONS='--inspect' npm run dev",
+    "performance:help": "echo 'Performance Scripts:' && echo '  npm run test:performance - Test all optimizations' && echo '  npm run test:performance:api - Test API performance' && echo '  npm run build:analyze - Analyze bundle size' && echo '  npm run dev:profile - Development with profiling'"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
@@ -53,10 +58,12 @@
     "@radix-ui/react-toggle": "1.1.1",
     "@radix-ui/react-toggle-group": "1.1.1",
     "@radix-ui/react-tooltip": "1.1.6",
-    "@supabase/auth-helpers-nextjs": "latest",
-    "@supabase/ssr": "^0.6.1",
-    "@supabase/supabase-js": "latest",
     "autoprefixer": "^10.4.20",
+    "next-auth": "latest",
+    "@auth/prisma-adapter": "latest",
+    "@prisma/client": "latest",
+    "bcryptjs": "latest",
+    "sqlite3": "latest",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "1.0.4",
@@ -89,6 +96,7 @@
     "postcss": "^8",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.7.1",
-    "typescript": "^5"
+    "typescript": "^5",
+    "prisma": "latest"
   }
 }

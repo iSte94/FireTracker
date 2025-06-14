@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { getBudgetAnalytics } from "@/lib/budget-client"
-import { createClientComponentClient } from "@/lib/supabase-client"
+import { useSession } from "next-auth/react"
 import { TrendingUp, TrendingDown, DollarSign, Target } from "lucide-react"
 import {
   LineChart,
@@ -46,18 +46,19 @@ export default function BudgetAnalytics() {
   const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([])
   const [trendData, setTrendData] = useState<TrendData[]>([])
   const [loading, setLoading] = useState(true)
-  const supabase = createClientComponentClient()
+  const { data: session } = useSession()
 
   useEffect(() => {
-    loadAnalyticsData()
-  }, [period])
+    if (session?.user?.id) {
+      loadAnalyticsData()
+    }
+  }, [period, session?.user?.id])
 
   const loadAnalyticsData = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!session?.user?.id) return
 
-      const data = await getBudgetAnalytics(user.id, period)
+      const data = await getBudgetAnalytics(session.user.id, period)
       setMonthlyData(data)
 
       // Calculate trends

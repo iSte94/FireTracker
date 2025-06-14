@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { Budget, getBudgets, updateBudget, deleteBudget } from "@/lib/budget-client"
-import { createClientComponentClient } from "@/lib/supabase-client"
+import { useSession } from "next-auth/react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -43,22 +43,23 @@ export default function BudgetList() {
   const [editingBudget, setEditingBudget] = useState<Budget | null>(null)
   const [deletingBudget, setDeletingBudget] = useState<Budget | null>(null)
   const [spendingData, setSpendingData] = useState<{ [key: string]: number }>({})
-  const supabase = createClientComponentClient()
+  const { data: session } = useSession()
 
   useEffect(() => {
-    loadBudgets()
-  }, [])
+    if (session?.user?.id) {
+      loadBudgets()
+    }
+  }, [session?.user?.id])
 
   const loadBudgets = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return
+      if (!session?.user?.id) return
 
-      const budgetList = await getBudgets(user.id)
+      const budgetList = await getBudgets(session.user.id)
       setBudgets(budgetList)
 
       // Load spending data for each budget
-      await loadSpendingData(user.id, budgetList)
+      await loadSpendingData(session.user.id, budgetList)
     } catch (error) {
       console.error("Error loading budgets:", error)
     } finally {
@@ -91,18 +92,27 @@ export default function BudgetList() {
           break
       }
 
-      // Get spending for this category and period
-      const { data: transactions } = await supabase
-        .from('transactions')
-        .select('amount')
-        .eq('user_id', userId)
-        .eq('category', budget.category)
-        .eq('type', 'EXPENSE')
-        .gte('date', startDate.toISOString())
-        .lte('date', endDate.toISOString())
+      try {
+        // Chiamata API per ottenere le spese della categoria nel periodo
+        const response = await fetch('/api/transactions?' + new URLSearchParams({
+          userId,
+          category: budget.category,
+          type: 'EXPENSE',
+          startDate: startDate.toISOString(),
+          endDate: endDate.toISOString()
+        }))
 
-      const totalSpent = transactions?.reduce((sum, t) => sum + Math.abs(t.amount), 0) || 0
-      spending[budget.id] = totalSpent
+        if (response.ok) {
+          const transactions = await response.json()
+          const totalSpent = transactions.reduce((sum: number, t: any) => sum + Math.abs(Number(t.amount)), 0)
+          spending[budget.id] = totalSpent
+        } else {
+          spending[budget.id] = 0
+        }
+      } catch (error) {
+        console.error(`Error loading spending for budget ${budget.id}:`, error)
+        spending[budget.id] = 0
+      }
     }
 
     setSpendingData(spending)

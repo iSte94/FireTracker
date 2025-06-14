@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import yahooFinance from 'yahoo-finance2';
+import { perfLogger } from '@/lib/performance-logger';
 
 // Cache per memorizzare i prezzi e ridurre le chiamate API
 const priceCache = new Map<string, { price: any; timestamp: number }>();
@@ -68,44 +69,67 @@ async function getPrice(ticker: string) {
 }
 
 export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { tickers } = body;
-    
-    if (!tickers || !Array.isArray(tickers)) {
-      return NextResponse.json(
-        { error: 'Tickers array è richiesto' },
-        { status: 400 }
-      );
-    }
-    
-    if (tickers.length === 0) {
-      return NextResponse.json({ prices: [] });
-    }
-    
-    // Limita il numero di ticker per evitare troppe richieste
-    const limitedTickers = tickers.slice(0, 50);
-    
-    // Ottieni i prezzi in parallelo
-    const pricePromises = limitedTickers.map(ticker => getPrice(ticker));
-    const prices = await Promise.all(pricePromises);
-    
-    // Filtra eventuali null/undefined
-    const validPrices = prices.filter(price => price !== null && price !== undefined);
-    
-    return NextResponse.json({
-      prices: validPrices,
-      timestamp: new Date().toISOString(),
-      cached: false, // Potremmo aggiungere logica per indicare se i dati sono dalla cache
-    });
-    
-  } catch (error) {
-    console.error('Errore nell\'API dei prezzi:', error);
-    return NextResponse.json(
-      { error: 'Errore interno del server' },
-      { status: 500 }
-    );
-  }
+  return await perfLogger.timeOperation(
+    'Portfolio Prices API (POST)',
+    async () => {
+      try {
+        const body = await request.json();
+        const { tickers } = body;
+        
+        console.log(`📈 [PRICES API] Request for ${tickers?.length || 0} tickers:`, tickers?.slice(0, 5));
+        
+        if (!tickers || !Array.isArray(tickers)) {
+          return NextResponse.json(
+            { error: 'Tickers array è richiesto' },
+            { status: 400 }
+          );
+        }
+        
+        if (tickers.length === 0) {
+          return NextResponse.json({ prices: [] });
+        }
+        
+        // Limita il numero di ticker per evitare troppe richieste
+        const limitedTickers = tickers.slice(0, 50);
+        
+        if (limitedTickers.length !== tickers.length) {
+          console.warn(`⚠️  [PRICES API] Limited tickers from ${tickers.length} to ${limitedTickers.length}`);
+        }
+        
+        // Ottieni i prezzi in parallelo
+        const pricePromises = limitedTickers.map(ticker =>
+          perfLogger.timeOperation(
+            `Yahoo Finance Quote: ${ticker}`,
+            () => getPrice(ticker),
+            { ticker }
+          )
+        );
+        
+        const prices = await Promise.all(pricePromises);
+        
+        // Filtra eventuali null/undefined
+        const validPrices = prices.filter(price => price !== null && price !== undefined);
+        const errorCount = prices.filter(price => price?.error).length;
+        const cacheHits = prices.filter(price => !price?.error).length - errorCount;
+        
+        console.log(`✅ [PRICES API] Completed: ${validPrices.length} prices, ${errorCount} errors, ${cacheHits} cache hits`);
+        
+        return NextResponse.json({
+          prices: validPrices,
+          timestamp: new Date().toISOString(),
+          cached: false, // Potremmo aggiungere logica per indicare se i dati sono dalla cache
+        });
+        
+      } catch (error) {
+        console.error('❌ [PRICES API] Internal error:', error);
+        return NextResponse.json(
+          { error: 'Errore interno del server' },
+          { status: 500 }
+        );
+      }
+    },
+    { tickersCount: tickers?.length }
+  );
 }
 
 // Endpoint GET per ottenere il prezzo di un singolo ticker

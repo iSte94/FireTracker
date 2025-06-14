@@ -1,0 +1,98 @@
+{
+  "bundleAnalysis": {
+    "totalFiles": 3,
+    "totalSize": 112908,
+    "totalSizeFormatted": "110.26 KB",
+    "largestChunks": [
+      {
+        "name": "polyfills.js",
+        "size": "109.96 KB",
+        "type": "other"
+      },
+      {
+        "name": "_buildManifest.js",
+        "size": "238 Bytes",
+        "type": "other"
+      },
+      {
+        "name": "_ssgManifest.js",
+        "size": "76 Bytes",
+        "type": "other"
+      }
+    ],
+    "optimizationStatus": {
+      "hasVendorChunk": false,
+      "hasMainChunk": false,
+      "hasRuntimeChunk": false,
+      "totalChunks": 3,
+      "avgChunkSize": 37636,
+      "avgChunkSizeFormatted": "36.75 KB",
+      "optimizationScore": 20
+    }
+  },
+  "lazyLoadingTest": {
+    "components/dashboard/lazy-dashboard-widgets.tsx": {
+      "exists": true,
+      "hasLazyImports": true,
+      "hasSuspense": true,
+      "hasSkeletons": true,
+      "lazyComponentsCount": 11,
+      "suspenseBoundaries": 24
+    },
+    "components/calculators/lazy-calculators.tsx": {
+      "exists": true,
+      "hasLazyImports": true,
+      "hasSuspense": true,
+      "hasSkeletons": true,
+      "lazyComponentsCount": 7,
+      "suspenseBoundaries": 16
+    },
+    "app/dashboard/page.tsx": {
+      "usesLazyComponents": true,
+      "hasSuspenseBoundaries": true
+    },
+    "app/calculators/page.tsx": {
+      "usesLazyComponents": true,
+      "hasSuspenseBoundaries": false
+    }
+  },
+  "memoizationTest": {
+    "hasMemoComponents": true,
+    "hasUseMemo": true,
+    "hasUseCallback": false,
+    "memoComponentsCount": 4,
+    "useMemoCount": 7,
+    "useCallbackCount": 0,
+    "hasDisplayNames": true,
+    "componentsWithDisplayNames": 4
+  },
+  "apiOptimizationTest": {
+    "hooks/use-optimized-api.ts": {
+      "exists": true,
+      "hasPromiseAll": true,
+      "hasAbortController": true,
+      "hasCaching": true,
+      "hasParallelCalls": true,
+      "promiseAllCount": 1,
+      "cacheImplementations": true
+    },
+    "hooks/use-portfolio-data.ts": {
+      "exists": true,
+      "hasPromiseAll": true,
+      "hasAbortController": false,
+      "hasCaching": false,
+      "hasParallelCalls": true,
+      "promiseAllCount": 2,
+      "cacheImplementations": false
+    }
+  },
+  "timestamp": "2025-06-01T09:45:25.541Z",
+  "nextConfigTest": {
+    "hasWebpackConfig": true,
+    "hasSplitChunks": true,
+    "hasOptimizePackageImports": true,
+    "hasCacheGroups": true,
+    "hasDevOptimizations": true,
+    "bundleAnalyzerSupport": true
+  }
+}

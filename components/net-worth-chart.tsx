@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useTheme } from "next-themes"
-import { createClientComponentClient } from "@/lib/supabase-client"
-import { getNetWorthHistory } from "@/lib/db-client"
+import { useSession } from "next-auth/react"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, type TooltipProps } from "recharts"
 import { Card } from "@/components/ui/card"
 import { ChartSkeleton } from "@/components/ui/chart-skeleton"
@@ -22,6 +21,20 @@ const CustomTooltip = ({ active, payload, label }: TooltipProps<number, string>)
   return null
 }
 
+// Funzione per ottenere lo storico del patrimonio netto tramite API
+async function getNetWorthHistory() {
+  try {
+    const response = await fetch('/api/net-worth/history')
+    if (!response.ok) {
+      throw new Error('Failed to fetch net worth history')
+    }
+    return await response.json()
+  } catch (error) {
+    console.error('Error fetching net worth history:', error)
+    return []
+  }
+}
+
 // Funzione per formattare la data
 const formatDate = (dateString: string) => {
   const date = new Date(dateString)
@@ -31,63 +44,35 @@ const formatDate = (dateString: string) => {
 export default function NetWorthChart() {
   const { theme } = useTheme()
   const isDark = theme === "dark"
+  const { data: session, status } = useSession()
   const [data, setData] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const supabase = createClientComponentClient()
 
   useEffect(() => {
     const fetchNetWorthData = async () => {
       try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser()
+        if (status === "loading") {
+          return
+        }
 
-        if (!user) {
-          // Se non c'è un utente autenticato, usa dati di esempio
-          const demoData = [
-            { month: "Gen", netWorth: 80000 },
-            { month: "Feb", netWorth: 82000 },
-            { month: "Mar", netWorth: 85000 },
-            { month: "Apr", netWorth: 89000 },
-            { month: "Mag", netWorth: 92000 },
-            { month: "Giu", netWorth: 95000 },
-            { month: "Lug", netWorth: 98000 },
-            { month: "Ago", netWorth: 102000 },
-            { month: "Set", netWorth: 105000 },
-            { month: "Ott", netWorth: 110000 },
-            { month: "Nov", netWorth: 115000 },
-            { month: "Dic", netWorth: 120000 },
-          ]
-          setData(demoData)
+        if (!session?.user) {
+          // Per utenti non autenticati, mostra grafico vuoto
+          setData([])
           setLoading(false)
           return
         }
 
-        const netWorthHistory = await getNetWorthHistory(user.id)
+        const netWorthHistory = await getNetWorthHistory()
 
         if (netWorthHistory.length === 0) {
-          // Se non ci sono dati, usa dati di esempio
-          const demoData = [
-            { month: "Gen", netWorth: 80000 },
-            { month: "Feb", netWorth: 82000 },
-            { month: "Mar", netWorth: 85000 },
-            { month: "Apr", netWorth: 89000 },
-            { month: "Mag", netWorth: 92000 },
-            { month: "Giu", netWorth: 95000 },
-            { month: "Lug", netWorth: 98000 },
-            { month: "Ago", netWorth: 102000 },
-            { month: "Set", netWorth: 105000 },
-            { month: "Ott", netWorth: 110000 },
-            { month: "Nov", netWorth: 115000 },
-            { month: "Dic", netWorth: 120000 },
-          ]
-          setData(demoData)
+          // Se non ci sono dati reali, mostra grafico vuoto
+          setData([])
         } else {
-          // Formatta i dati per il grafico
-          const formattedData = netWorthHistory.map((entry) => ({
+          // Formatta i dati reali per il grafico
+          const formattedData = netWorthHistory.map((entry: any) => ({
             month: formatDate(entry.date),
-            netWorth: entry.amount,
+            netWorth: Number(entry.amount),
             date: entry.date,
           }))
           setData(formattedData)
@@ -101,7 +86,7 @@ export default function NetWorthChart() {
     }
 
     fetchNetWorthData()
-  }, [supabase])
+  }, [session, status])
 
   if (loading) {
     return <ChartSkeleton />
@@ -109,6 +94,17 @@ export default function NetWorthChart() {
 
   if (error) {
     return <div className="flex items-center justify-center h-full">{error}</div>
+  }
+
+  if (data.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-center">
+        <div className="text-muted-foreground mb-4">
+          <p className="text-lg font-medium">Nessun dato disponibile</p>
+          <p className="text-sm">Aggiungi transazioni per vedere l'andamento del patrimonio netto</p>
+        </div>
+      </div>
+    )
   }
 
   return (

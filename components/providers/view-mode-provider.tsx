@@ -1,7 +1,7 @@
-"use client"
+"use client";
 
 import React, { createContext, useContext, useEffect, useState } from "react"
-import { createClientComponentClient } from "@/lib/supabase-client"
+import { useSession } from "next-auth/react"
 import { useRouter } from "next/navigation"
 
 type ViewMode = 'fire_only' | 'fire_budget'
@@ -17,30 +17,28 @@ const ViewModeContext = createContext<ViewModeContextType | undefined>(undefined
 export function ViewModeProvider({ children }: { children: React.ReactNode }) {
   const [viewMode, setViewModeState] = useState<ViewMode>('fire_budget')
   const [isLoading, setIsLoading] = useState(true)
-  const supabase = createClientComponentClient()
+  const { data: session, status } = useSession()
   const router = useRouter()
 
   // Carica la modalità di visualizzazione dal profilo utente
   useEffect(() => {
     const loadViewMode = async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser()
-        
-        if (!user) {
+        if (!session?.user?.email) {
           setIsLoading(false)
           return
         }
 
-        const { data: profile, error } = await supabase
-          .from("profiles")
-          .select("view_mode")
-          .eq("id", user.id)
-          .single()
+        const response = await fetch('/api/profile/view-mode')
+        if (!response.ok) {
+          console.error("Errore nel caricamento della modalità di visualizzazione")
+          setIsLoading(false)
+          return
+        }
 
-        if (error) {
-          console.error("Errore nel caricamento della modalità di visualizzazione:", error)
-        } else if (profile?.view_mode) {
-          setViewModeState(profile.view_mode as ViewMode)
+        const data = await response.json()
+        if (data.viewMode) {
+          setViewModeState(data.viewMode as ViewMode)
         }
       } catch (error) {
         console.error("Errore nel caricamento della modalità di visualizzazione:", error)
@@ -49,49 +47,42 @@ export function ViewModeProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    loadViewMode()
-
-    // Ascolta i cambiamenti di autenticazione
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
-        await loadViewMode()
-      } else if (event === 'SIGNED_OUT') {
-        setViewModeState('fire_budget')
-      }
-    })
-
-    return () => {
-      subscription.unsubscribe()
+    if (status === "loading") return
+    
+    if (status === "authenticated") {
+      loadViewMode()
+    } else {
+      setViewModeState('fire_budget')
+      setIsLoading(false)
     }
-  }, [supabase])
+  }, [session, status])
 
   // Funzione per aggiornare la modalità di visualizzazione
   const setViewMode = async (mode: ViewMode) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      
-      if (!user) return
+      if (!session?.user?.email) return
 
       // Aggiorna lo stato locale immediatamente per un feedback rapido
       setViewModeState(mode)
 
-      // Aggiorna il database
-      const { error } = await supabase
-        .from("profiles")
-        .update({ view_mode: mode })
-        .eq("id", user.id)
+      // Aggiorna il database via API
+      const response = await fetch('/api/profile/view-mode', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ viewMode: mode }),
+      })
 
-      if (error) {
-        console.error("Errore nell'aggiornamento della modalità di visualizzazione:", error)
+      if (!response.ok) {
+        console.error("Errore nell'aggiornamento della modalità di visualizzazione")
         // In caso di errore, ricarica la modalità dal database
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("view_mode")
-          .eq("id", user.id)
-          .single()
-        
-        if (profile?.view_mode) {
-          setViewModeState(profile.view_mode as ViewMode)
+        const getResponse = await fetch('/api/profile/view-mode')
+        if (getResponse.ok) {
+          const data = await getResponse.json()
+          if (data.viewMode) {
+            setViewModeState(data.viewMode as ViewMode)
+          }
         }
       }
     } catch (error) {
