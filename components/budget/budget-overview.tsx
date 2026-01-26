@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { useSession } from "next-auth/react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
@@ -46,10 +46,10 @@ export default function BudgetOverview() {
   const [loading, setLoading] = useState(true)
   const { data: session } = useSession()
 
-  const loadBudgetData = async () => {
+  const loadBudgetData = useCallback(async () => {
     try {
       setLoading(true)
-      
+
       if (!session?.user?.id) {
         console.log("No user session found")
         return
@@ -57,7 +57,7 @@ export default function BudgetOverview() {
 
       const overview = await getBudgetOverview(session.user.id)
       const spending = await getCategorySpending(session.user.id)
-      
+
       setBudgetData(overview)
       setCategorySpending(spending)
     } catch (error) {
@@ -65,7 +65,7 @@ export default function BudgetOverview() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [session?.user?.id])
 
   useEffect(() => {
     if (session?.user?.id) {
@@ -83,12 +83,12 @@ export default function BudgetOverview() {
     // Ascolta eventi di refresh
     window.addEventListener('budget-refresh', handleRefresh)
     window.addEventListener('transactions-refresh', handleRefresh)
-    
+
     return () => {
       window.removeEventListener('budget-refresh', handleRefresh)
       window.removeEventListener('transactions-refresh', handleRefresh)
     }
-  }, [session?.user?.id])
+  }, [session?.user?.id, loadBudgetData]) // Fixed: added loadBudgetData to prevent stale closure
 
   if (loading) {
     return (

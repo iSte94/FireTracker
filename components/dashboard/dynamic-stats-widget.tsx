@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { useSession } from "next-auth/react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ArrowDown, ArrowUp, DollarSign, LineChart, PiggyBank, Target } from "lucide-react"
@@ -30,7 +30,7 @@ export default function DynamicStatsWidget({ isFireBudget = false }: DynamicStat
   const [error, setError] = useState<string | null>(null)
   const { data: session } = useSession()
 
-  const loadDashboardStats = async () => {
+  const loadDashboardStats = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
@@ -71,7 +71,7 @@ export default function DynamicStatsWidget({ isFireBudget = false }: DynamicStat
     } finally {
       setLoading(false)
     }
-  }
+  }, [session?.user?.id])
 
   useEffect(() => {
     // Carica i dati solo se la sessione è disponibile
@@ -97,12 +97,12 @@ export default function DynamicStatsWidget({ isFireBudget = false }: DynamicStat
 
     window.addEventListener('dashboard-refresh', handleRefresh)
     window.addEventListener('budget-refresh', handleRefresh)
-    
+
     return () => {
       window.removeEventListener('dashboard-refresh', handleRefresh)
       window.removeEventListener('budget-refresh', handleRefresh)
     }
-  }, [session]) // Aggiunta sessione come dipendenza per ricreare listener se sessione cambia
+  }, [session, loadDashboardStats]) // Fixed: added loadDashboardStats to prevent stale closure
 
   if (loading) {
     return <DynamicStatsSkeleton isFireBudget={isFireBudget} />

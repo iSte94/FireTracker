@@ -75,27 +75,27 @@ export async function POST(request: NextRequest) {
       try {
         const body = await request.json();
         const { tickers } = body;
-        
+
         console.log(`📈 [PRICES API] Request for ${tickers?.length || 0} tickers:`, tickers?.slice(0, 5));
-        
+
         if (!tickers || !Array.isArray(tickers)) {
           return NextResponse.json(
             { error: 'Tickers array è richiesto' },
             { status: 400 }
           );
         }
-        
+
         if (tickers.length === 0) {
           return NextResponse.json({ prices: [] });
         }
-        
+
         // Limita il numero di ticker per evitare troppe richieste
         const limitedTickers = tickers.slice(0, 50);
-        
+
         if (limitedTickers.length !== tickers.length) {
           console.warn(`⚠️  [PRICES API] Limited tickers from ${tickers.length} to ${limitedTickers.length}`);
         }
-        
+
         // Ottieni i prezzi in parallelo
         const pricePromises = limitedTickers.map(ticker =>
           perfLogger.timeOperation(
@@ -104,22 +104,22 @@ export async function POST(request: NextRequest) {
             { ticker }
           )
         );
-        
+
         const prices = await Promise.all(pricePromises);
-        
+
         // Filtra eventuali null/undefined
         const validPrices = prices.filter(price => price !== null && price !== undefined);
         const errorCount = prices.filter(price => price?.error).length;
         const cacheHits = prices.filter(price => !price?.error).length - errorCount;
-        
+
         console.log(`✅ [PRICES API] Completed: ${validPrices.length} prices, ${errorCount} errors, ${cacheHits} cache hits`);
-        
+
         return NextResponse.json({
           prices: validPrices,
           timestamp: new Date().toISOString(),
           cached: false, // Potremmo aggiungere logica per indicare se i dati sono dalla cache
         });
-        
+
       } catch (error) {
         console.error('❌ [PRICES API] Internal error:', error);
         return NextResponse.json(
@@ -127,8 +127,8 @@ export async function POST(request: NextRequest) {
           { status: 500 }
         );
       }
-    },
-    { tickersCount: tickers?.length }
+    }
+    // Fixed: removed { tickersCount: tickers?.length } - tickers is not in scope here
   );
 }
 
@@ -161,16 +161,8 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Funzione per pulire la cache periodicamente (opzionale)
-if (typeof window === 'undefined') {
-  // Solo lato server
-  setInterval(() => {
-    const now = Date.now();
-    for (const [ticker, data] of priceCache.entries()) {
-      if (now - data.timestamp > CACHE_DURATION * 10) {
-        // Rimuovi dalla cache se più vecchio di 10 minuti
-        priceCache.delete(ticker);
-      }
-    }
-  }, 5 * 60 * 1000); // Pulisci ogni 5 minuti
-}
+// Fixed: Removed setInterval at module level to prevent memory leak
+// In serverless environments (like Vercel), modules can stay in memory and
+// accumulate multiple intervals. The cache will naturally expire based on
+// CACHE_DURATION checks in getPrice() function, making periodic cleanup unnecessary.
+// If needed, cleanup can be implemented with a proper cleanup mechanism.

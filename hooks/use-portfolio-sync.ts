@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 
 interface PortfolioData {
@@ -12,6 +12,9 @@ export function usePortfolioSync(autoSync: boolean = true, syncInterval: number 
   const [portfolioData, setPortfolioData] = useState<PortfolioData | null>(null);
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const { toast } = useToast();
+
+  // Use ref to store the latest syncPortfolio function to avoid infinite re-renders
+  const syncPortfolioRef = useRef<() => Promise<any>>();
 
   const syncPortfolio = useCallback(async () => {
     setIsLoading(true);
@@ -70,20 +73,25 @@ export function usePortfolioSync(autoSync: boolean = true, syncInterval: number 
     }
   }, [toast]);
 
+  // Update ref whenever syncPortfolio changes
+  useEffect(() => {
+    syncPortfolioRef.current = syncPortfolio;
+  }, [syncPortfolio]);
+
   // Sincronizzazione automatica
   useEffect(() => {
     if (autoSync) {
       // Sincronizza immediatamente
-      syncPortfolio();
+      syncPortfolioRef.current?.();
 
       // Imposta intervallo di sincronizzazione
       const interval = setInterval(() => {
-        syncPortfolio();
+        syncPortfolioRef.current?.();
       }, syncInterval);
 
       return () => clearInterval(interval);
     }
-  }, [autoSync, syncInterval, syncPortfolio]);
+  }, [autoSync, syncInterval]); // Fixed: removed syncPortfolio to prevent infinite re-renders
 
   // Funzione per forzare la sincronizzazione
   const forceSync = useCallback(async () => {

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
 import { useToast } from "@/hooks/use-toast"
 import { calculateMilestones, FIRE_TYPES, calculateTimeToFire } from "@/lib/fire-calculations"
 import { AlertCircle, TrendingDown, TrendingUp, Trophy, Zap } from "lucide-react"
@@ -40,7 +40,12 @@ export function useFireAlerts({
     savings: currentSavings,
     milestones: new Set<string>()
   })
-  
+
+  // Use refs to store the latest callback functions to avoid infinite re-renders
+  const checkMilestonesRef = useRef<() => void>();
+  const checkDeviationsRef = useRef<() => void>();
+  const generateSuggestionsRef = useRef<() => FireAlert[]>();
+
   // Controlla milestone raggiunte
   const checkMilestones = useCallback(() => {
     const traditionalFireNumber = annualExpenses * FIRE_TYPES.traditional.multiplier
@@ -178,16 +183,29 @@ export function useFireAlerts({
     
     return suggestions
   }, [currentSavings, annualExpenses, annualSavings, expectedReturn, inflationRate])
-  
+
+  // Update refs whenever callbacks change
+  useEffect(() => {
+    checkMilestonesRef.current = checkMilestones;
+  }, [checkMilestones]);
+
+  useEffect(() => {
+    checkDeviationsRef.current = checkDeviations;
+  }, [checkDeviations]);
+
+  useEffect(() => {
+    generateSuggestionsRef.current = generateSuggestions;
+  }, [generateSuggestions]);
+
   // Controlla periodicamente
   useEffect(() => {
     const checkAlerts = () => {
-      checkMilestones()
-      checkDeviations()
-      
+      checkMilestonesRef.current?.()
+      checkDeviationsRef.current?.()
+
       // Genera suggerimenti ogni 5 controlli
       if (Math.random() < 0.2) {
-        const suggestions = generateSuggestions()
+        const suggestions = generateSuggestionsRef.current?.() || []
         suggestions.forEach(suggestion => {
           setAlerts(prev => [...prev, suggestion])
           toast({
@@ -198,15 +216,15 @@ export function useFireAlerts({
         })
       }
     }
-    
+
     // Controlla immediatamente
     checkAlerts()
-    
+
     // Imposta intervallo
     const interval = setInterval(checkAlerts, checkInterval)
-    
+
     return () => clearInterval(interval)
-  }, [checkMilestones, checkDeviations, generateSuggestions, checkInterval, toast])
+  }, [checkInterval, toast]) // Fixed: removed callback dependencies to prevent infinite re-renders
   
   // Funzione per rimuovere un alert
   const dismissAlert = useCallback((alertId: string) => {
