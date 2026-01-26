@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useSession } from 'next-auth/react';
 
@@ -28,6 +28,9 @@ export function useGoalAlerts(checkInterval: number = 600000) { // 10 minuti def
   
   const isAuthenticated = status === "authenticated";
   const isLoading = status === "loading";
+
+  // Use ref to store the latest checkGoalProgress function to avoid infinite re-renders
+  const checkGoalProgressRef = useRef<() => Promise<GoalAlert[]>>();
 
   const checkGoalProgress = useCallback(async () => {
     if (!isAuthenticated) {
@@ -158,6 +161,11 @@ export function useGoalAlerts(checkInterval: number = 600000) { // 10 minuti def
     }
   }, [toast, isAuthenticated, isLoading]);
 
+  // Update ref whenever checkGoalProgress changes
+  useEffect(() => {
+    checkGoalProgressRef.current = checkGoalProgress;
+  }, [checkGoalProgress]);
+
   // Controllo automatico periodico
   useEffect(() => {
     // Blocca tutto se non autenticato
@@ -179,20 +187,20 @@ export function useGoalAlerts(checkInterval: number = 600000) { // 10 minuti def
 
     // Controllo iniziale solo se non stiamo già controllando e siamo autenticati
     if (!isChecking && isAuthenticated) {
-      checkGoalProgress();
+      checkGoalProgressRef.current?.();
     }
 
     // Imposta intervallo di controllo solo se autenticati
     const interval = setInterval(() => {
       if (!isChecking && isAuthenticated) {
-        checkGoalProgress();
+        checkGoalProgressRef.current?.();
       }
     }, checkInterval);
 
     return () => {
       clearInterval(interval);
     };
-  }, [checkInterval, checkGoalProgress, isAuthenticated, isLoading]); // Aggiungo isAuthenticated e isLoading alle dipendenze
+  }, [checkInterval, isAuthenticated, isLoading]); // Fixed: removed checkGoalProgress to prevent infinite re-renders
 
   // Funzione per rimuovere un alert
   const dismissAlert = useCallback((alertId: string) => {
